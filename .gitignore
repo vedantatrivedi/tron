@@ -1,0 +1,7 @@
+.DS_Store
+.pycache/
+.venv/
+__pycache__/
+*.pyc
+
+eval/*.jsonl

@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: tron
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: app-config
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+        - name: redis-bridge
+          image: python:3.12-alpine
+          command:
+            - python
+            - /app/bridge.py
+          envFrom:
+            - configMapRef:
+                name: app-config
+          ports:
+            - containerPort: 9000
+              name: bridge
+          volumeMounts:
+            - name: bridge-script
+              mountPath: /app/bridge.py
+              subPath: bridge.py
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+        - name: bridge-script
+          configMap:
+            name: nginx-config
+            items:
+              - key: bridge.py
+                path: bridge.py
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: tron
+spec:
+  selector:
+    app: nginx
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

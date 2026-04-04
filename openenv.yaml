@@ -1,0 +1,30 @@
+name: tron
+description: Live k3d benchmark for diagnosing and repairing realistic Kubernetes incidents under partial observability.
+type: benchmark
+entrypoints:
+  default_eval: python eval/run_eval.py --agent all
+  naive_eval: python eval/run_eval.py --agent naive
+  llm_eval: python eval/run_eval.py --agent llm
+runtime:
+  reset_command: bash ./cleanup.sh && bash ./setup.sh
+  live_cluster: k3d
+  ingress_url: http://127.0.0.1:8080
+agents:
+  - name: naive
+    description: Weak brute-force playbook with heavy destructive-action cost.
+  - name: llm
+    description: One-command-per-turn tool-using baseline with provider-swappable client adapters.
+observability:
+  partial_observability: true
+  blackbox_service_probe: true
+  recent_change_hints: true
+  automatic_logs: false
+  automatic_describe: false
+scenario_sampling:
+  randomized_parameters: true
+  seeded_reproducibility: true
+  catalog: scenario_catalog.py
+evaluation:
+  oracle: oracle.py
+  reward_model: service_score_delta_plus_action_cost
+  max_agent_steps: 12

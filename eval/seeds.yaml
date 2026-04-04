@@ -1,0 +1,16 @@
+scenarios:
+  - id: bad-rollout-wrong-redis-host
+    seeds:
+      - 11
+      - 21
+      - 34
+  - id: networkpolicy-blocks-nginx-to-redis
+    seeds:
+      - 13
+      - 26
+      - 52
+  - id: wrong-redis-host-plus-cpu-throttle
+    seeds:
+      - 17
+      - 29
+      - 58
