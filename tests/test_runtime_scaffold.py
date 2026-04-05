@@ -3,7 +3,7 @@ from __future__ import annotations
 import pathlib
 import unittest
 
-from scenario_catalog import load_catalog
+from tron.scenario_catalog import load_catalog
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]

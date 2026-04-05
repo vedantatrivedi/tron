@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from models import ObservationBundle, ScenarioInstance
+from tron.models import ObservationBundle, ScenarioInstance
 
 
 PLAYBOOK = [

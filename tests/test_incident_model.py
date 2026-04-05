@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 import unittest
 
-from incident_engine import IncidentEngine
-from scenario_catalog import load_catalog
-from sampler import get_scenario, sample_scenario
+from tron.incident_engine import IncidentEngine
+from tron.scenario_catalog import load_catalog
+from tron.sampler import get_scenario, sample_scenario
 
 
 @dataclass
@@ -61,6 +61,12 @@ class IncidentModelTests(unittest.TestCase):
             },
         )
 
+    def test_catalog_ids_are_unique(self) -> None:
+        catalog = load_catalog()
+        scenario_ids = [scenario.id for scenario in catalog]
+
+        self.assertEqual(len(scenario_ids), len(set(scenario_ids)))
+
     def test_every_scenario_has_required_review_fields(self) -> None:
         for scenario in load_catalog():
             self.assertTrue(scenario.title)
@@ -73,6 +79,8 @@ class IncidentModelTests(unittest.TestCase):
             self.assertTrue(scenario.inject_commands)
             self.assertTrue(scenario.activation_checks)
             self.assertTrue(scenario.restore_commands)
+            if scenario.requires_service_degradation:
+                self.assertTrue(scenario.cluster_clue_checks, scenario.id)
 
     def test_sampling_is_seeded_and_reproducible(self) -> None:
         catalog = load_catalog()
@@ -135,10 +143,12 @@ class IncidentModelTests(unittest.TestCase):
         self.assertIn("BRIDGE_CPU_BURN_MS", cpu.inject_commands[0])
         self.assertIn("rollout restart deployment/nginx", cpu.inject_commands[0])
         self.assertIn("kubectl apply -f manifests/configmap.yaml", cpu.restore_commands)
+        self.assertIn("cpu-burn-profile-applied", {check.name for check in cpu.cluster_clue_checks})
 
         self.assertIn("BRIDGE_MEMORY_BURST_MB", memory.inject_commands[0])
         self.assertIn("rollout restart deployment/nginx", memory.inject_commands[0])
         self.assertIn("kubectl apply -f manifests/configmap.yaml", memory.restore_commands)
+        self.assertIn("bridge-restarts-after-memory-pressure", {check.name for check in memory.cluster_clue_checks})
 
     def test_new_deployment_incidents_have_reviewable_repairs(self) -> None:
         crashloop = get_scenario(load_catalog(), "bridge-crashloop-bad-command")
@@ -161,6 +171,20 @@ class IncidentModelTests(unittest.TestCase):
         self.assertEqual(instance.template.id, "networkpolicy-blocks-nginx-to-redis")
         self.assertTrue(executor.shell_commands)
         self.assertTrue(executor.argv_commands)
+
+    def test_degrading_scenarios_publish_explicit_cluster_clues(self) -> None:
+        scenarios = {
+            scenario.id: scenario
+            for scenario in load_catalog()
+            if scenario.requires_service_degradation
+        }
+
+        self.assertIn("configmap-has-bad-host", {check.name for check in scenarios["bad-rollout-wrong-redis-host"].cluster_clue_checks})
+        self.assertIn("redis-endpoints-empty", {check.name for check in scenarios["service-selector-mismatch"].cluster_clue_checks})
+        self.assertIn(
+            "bridge-restarts-after-memory-pressure",
+            {check.name for check in scenarios["memory-limits-too-low"].cluster_clue_checks},
+        )
 
 
 if __name__ == "__main__":

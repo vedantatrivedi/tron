@@ -1,0 +1,8 @@
+.git
+.venv
+.pycache
+__pycache__
+.env
+eval/*.jsonl
+eval/*.log
+eval/*.txt

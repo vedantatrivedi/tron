@@ -6,12 +6,12 @@ import time
 
 import requests
 
-from executor import CommandExecutor
-from models import (
+from tron.checks import evaluate_check
+from tron.executor import CommandExecutor
+from tron.models import (
     AgentStep,
     AgentVerdict,
     BenchmarkConfig,
-    CheckResult,
     EvaluationRecord,
     ObservationBundle,
     ScenarioInstance,
@@ -68,20 +68,6 @@ def probe_service(config: BenchmarkConfig) -> ServiceProbe:
         score=score,
     )
 
-
-def _evaluate_check(executor: CommandExecutor, check) -> CheckResult:
-    result = executor.run_argv(check.command)
-    stdout = result.stdout
-    details = stdout or result.stderr
-    if check.match_mode == "equals":
-        ok = result.return_code == 0 and stdout == check.success_substring
-    elif check.success_substring:
-        ok = result.return_code == 0 and check.success_substring in stdout
-    else:
-        ok = result.return_code == 0 and stdout == ""
-    return CheckResult(name=check.name, ok=ok, details=details)
-
-
 def evaluate_repair(
     executor: CommandExecutor,
     config: BenchmarkConfig,
@@ -91,7 +77,7 @@ def evaluate_repair(
 ) -> EvaluationRecord:
     """Score final repair state from black-box health plus explicit repair checks."""
 
-    checks = [_evaluate_check(executor, check) for check in instance.template.repair_checks]
+    checks = [evaluate_check(executor, check) for check in instance.template.repair_checks]
     repair_score = sum(1 for check in checks if check.ok) / max(len(checks), 1)
     probe = probe_service(config)
     score = round((repair_score + probe.score) / 2, 3)

@@ -9,6 +9,7 @@ import re
 from textwrap import dedent
 from typing import Protocol
 
+from tron.action_analysis import command_family
 try:
     from anthropic import Anthropic
 except ImportError:  # pragma: no cover
@@ -25,7 +26,7 @@ try:
 except ImportError:  # pragma: no cover
     OpenAI = None
 
-from models import ObservationBundle, ScenarioInstance
+from tron.models import ObservationBundle, ScenarioInstance
 
 load_dotenv()
 
@@ -318,36 +319,6 @@ def observation_to_payload(
         },
         "recent_history": history[-12:],
     }
-
-
-def command_family(command: str) -> str:
-    lowered = command.lower()
-    if "configmap app-config" in lowered:
-        return "app_config"
-    if "networkpolicy" in lowered:
-        return "network_policy"
-    if "service redis" in lowered:
-        return "redis_service"
-    if "endpoints redis" in lowered:
-        return "redis_endpoints"
-    if "ingress" in lowered:
-        return "ingress"
-    if "rollout restart deployment/nginx" in lowered:
-        return "restart_nginx"
-    if "rollout restart deployment/redis" in lowered:
-        return "restart_redis"
-    if "deployment nginx" in lowered:
-        return "nginx_deployment"
-    if "logs" in lowered and "redis-bridge" in lowered:
-        return "bridge_logs"
-    if (
-        ("get pods" in lowered or "get pod" in lowered or "exec " in lowered)
-        and "redis_host" in lowered
-    ):
-        return "live_runtime_env"
-    if "get pods" in lowered or "get pod" in lowered:
-        return "pods"
-    return "other"
 
 
 def summarize_observed_facts(history: list[dict]) -> list[str]:

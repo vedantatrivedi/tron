@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """Tiered default observations for the tron runtime."""
 
-from executor import CommandExecutor
-from models import BenchmarkConfig, ClusterSummary, ObservationBundle, ScenarioInstance, ServiceProbe
+from tron.executor import CommandExecutor
+from tron.models import BenchmarkConfig, ClusterSummary, ObservationBundle, ScenarioInstance, ServiceProbe
 
 
 def _compact_lines(text: str, limit: int) -> str:

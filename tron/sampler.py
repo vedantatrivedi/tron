@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 import random
 
-from models import RepairCheck, ScenarioInstance, ScenarioTemplate
+from tron.models import RepairCheck, ScenarioInstance, ScenarioTemplate
 
 
 def _render(value: str, params: dict[str, object]) -> str:

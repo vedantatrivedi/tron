@@ -2,9 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /workspace
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash make \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "eval/run_eval.py", "--help"]
+ENV PYTHONPATH=/workspace
+
+CMD ["make", "ci"]

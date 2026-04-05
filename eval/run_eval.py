@@ -17,9 +17,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from baseline import llm_agent, naive
-from env import TronEnvironment
-from models import BenchmarkConfig, ClusterConfig
-from oracle import probe_service
+from tron.action_analysis import classify_action
+from tron.env import TronEnvironment
+from tron.models import BenchmarkConfig, ClusterConfig
+from tron.oracle import probe_service
 
 
 class Agent(Protocol):
@@ -57,27 +58,6 @@ def build_agent(name: str) -> Agent:
     if name == "llm":
         return llm_agent.build_agent()
     raise KeyError(f"unknown agent: {name}")
-
-
-def classify_action(command: str) -> str:
-    stripped = command.strip()
-    if stripped.startswith("curl "):
-        return "diagnostic"
-    if stripped.startswith("kubectl get "):
-        return "diagnostic"
-    if stripped.startswith("kubectl describe "):
-        return "diagnostic"
-    if stripped.startswith("kubectl logs "):
-        return "diagnostic"
-    if stripped.startswith("kubectl top "):
-        return "diagnostic"
-    if " rollout history " in stripped:
-        return "diagnostic"
-    if " rollout status " in stripped:
-        return "diagnostic"
-    if stripped.startswith("kubectl exec "):
-        return "diagnostic"
-    return "destructive"
 
 
 def _print_progress(message: str) -> None:

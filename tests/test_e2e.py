@@ -9,12 +9,12 @@ from pathlib import Path
 
 import requests
 
-from env import TronEnvironment
-from executor import CommandExecutor
-from incident_engine import IncidentEngine
-from models import BenchmarkConfig, ClusterConfig
-from sampler import sample_scenario
-from scenario_catalog import load_catalog
+from tron.env import TronEnvironment
+from tron.executor import CommandExecutor
+from tron.incident_engine import IncidentEngine
+from tron.models import BenchmarkConfig, ClusterConfig
+from tron.sampler import sample_scenario
+from tron.scenario_catalog import load_catalog
 
 
 ROOT = Path(__file__).resolve().parents[1]

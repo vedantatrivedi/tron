@@ -4,26 +4,14 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from models import CheckResult, ScenarioInstance, ScenarioTemplate
-from sampler import get_scenario, sample_scenario
+from tron.checks import evaluate_check, format_failed_checks
+from tron.models import CheckResult, ScenarioInstance, ScenarioTemplate
+from tron.sampler import get_scenario, sample_scenario
 
 
 class SupportsCommandExecution(Protocol):
     def run(self, command: str, timeout: float = 20.0): ...
     def run_argv(self, argv: list[str], timeout: float = 20.0): ...
-
-
-def _evaluate_check(executor: SupportsCommandExecution, check) -> CheckResult:
-    result = executor.run_argv(check.command)
-    stdout = result.stdout
-    details = stdout or result.stderr
-    if check.match_mode == "equals":
-        ok = result.return_code == 0 and stdout == check.success_substring
-    elif check.success_substring:
-        ok = result.return_code == 0 and check.success_substring in stdout
-    else:
-        ok = result.return_code == 0 and stdout == ""
-    return CheckResult(name=check.name, ok=ok, details=details)
 
 
 class IncidentEngine:
@@ -44,7 +32,11 @@ class IncidentEngine:
         return applied
 
     def verify_activation(self, instance: ScenarioInstance) -> list[CheckResult]:
-        return [_evaluate_check(self.executor, check) for check in instance.template.activation_checks]
+        return [evaluate_check(self.executor, check) for check in instance.template.activation_checks]
+
+    def verify_cluster_clues(self, instance: ScenarioInstance) -> list[CheckResult]:
+        clue_checks = instance.template.cluster_clue_checks or instance.template.activation_checks[:1]
+        return [evaluate_check(self.executor, check) for check in clue_checks]
 
     def restore(self, instance: ScenarioInstance) -> list[str]:
         restored: list[str] = []
@@ -68,10 +60,10 @@ class IncidentEngine:
     ) -> ScenarioInstance:
         instance = sample_scenario(catalog, seed=seed, scenario_id=get_scenario(catalog, scenario_id).id)
         self.inject(instance)
-        failed = [check for check in self.verify_activation(instance) if not check.ok]
-        if failed:
-            raise RuntimeError(
-                f"activation checks failed for {scenario_id}: "
-                + ", ".join(f"{check.name} -> {check.details}" for check in failed)
-            )
+        failure = format_failed_checks(
+            f"activation checks failed for {scenario_id}: ",
+            self.verify_activation(instance),
+        )
+        if failure:
+            raise RuntimeError(failure)
         return instance

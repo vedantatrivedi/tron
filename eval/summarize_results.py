@@ -129,6 +129,44 @@ def build_summary(rows: list[dict]) -> dict:
     return summary
 
 
+def build_scenario_report(rows: list[dict]) -> dict:
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        grouped[row["scenario_id"]].append(row)
+
+    report: dict[str, dict] = {}
+    for scenario_id, items in sorted(grouped.items()):
+        verdicts = Counter(item["oracle"]["verdict"] for item in items)
+        report[scenario_id] = {
+            "runs": len(items),
+            "avg_oracle_score": round(
+                sum(item["oracle"]["score"] for item in items) / len(items),
+                3,
+            ),
+            "success_rate": round(
+                sum(1 for item in items if item["oracle"]["verdict"] == "success") / len(items),
+                3,
+            ),
+            "avg_step_count": round(
+                sum(item.get("step_count", len(item.get("steps", []))) for item in items) / len(items),
+                2,
+            ),
+            "verdicts": dict(sorted(verdicts.items())),
+        }
+    return report
+
+
+def build_machine_report(rows: list[dict]) -> dict:
+    summary = build_summary(rows)
+    return {
+        "overall": summary.get("overall", {}),
+        "by_agent": {
+            key: value for key, value in summary.items() if key != "overall"
+        },
+        "by_scenario": build_scenario_report(rows),
+    }
+
+
 def print_summary(summary: dict) -> None:
     for label in ["overall", *sorted(key for key in summary.keys() if key != "overall")]:
         if label not in summary:
@@ -150,6 +188,7 @@ def print_summary(summary: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize tron eval results.")
     parser.add_argument("results", nargs="?", default="eval/results.jsonl")
+    parser.add_argument("--json-out")
     args = parser.parse_args()
 
     rows = load_results(Path(args.results))
@@ -158,6 +197,11 @@ def main() -> None:
         return
     summary = build_summary(rows)
     print_summary(summary)
+    if args.json_out:
+        machine_report = build_machine_report(rows)
+        out_path = Path(args.json_out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(machine_report, indent=2, sort_keys=True), encoding="utf-8")
 
 
 if __name__ == "__main__":

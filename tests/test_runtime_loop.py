@@ -4,12 +4,12 @@ from dataclasses import dataclass
 import unittest
 from unittest.mock import patch
 
-from env import TronEnvironment
-from executor import CommandExecutor, CommandResult
-from models import BenchmarkConfig, ServiceProbe
-from observations import collect_observations
-from sampler import sample_scenario
-from scenario_catalog import load_catalog
+from tron.env import TronEnvironment
+from tron.executor import CommandExecutor, CommandResult
+from tron.models import BenchmarkConfig, ServiceProbe
+from tron.observations import collect_observations
+from tron.sampler import sample_scenario
+from tron.scenario_catalog import load_catalog
 
 
 @dataclass
@@ -100,6 +100,16 @@ class StubIncidentEngine:
     def verify_activation(self, instance):
         return []
 
+    def verify_cluster_clues(self, instance):
+        return []
+
+
+class MissingClueIncidentEngine(StubIncidentEngine):
+    def verify_cluster_clues(self, instance):
+        from tron.models import CheckResult
+
+        return [CheckResult(name="cluster-clue", ok=False, details="missing pod-side signal")]
+
 
 class ExecutorTests(unittest.TestCase):
     def test_executor_rejects_non_kubectl_commands(self) -> None:
@@ -157,7 +167,7 @@ class ObservationTests(unittest.TestCase):
 
 
 class EnvironmentLoopTests(unittest.TestCase):
-    @patch("env.probe_service")
+    @patch("tron.env.probe_service")
     def test_reset_uses_in_cluster_restore_by_default(self, probe_service_mock) -> None:
         probe_service_mock.return_value = ServiceProbe("ok", "error", 503, 250, 0.7)
         executor = StubExecutor()
@@ -175,7 +185,7 @@ class EnvironmentLoopTests(unittest.TestCase):
         self.assertNotIn("CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./cleanup.sh", executor.commands)
         self.assertNotIn("CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./setup.sh", executor.commands)
 
-    @patch("env.probe_service")
+    @patch("tron.env.probe_service")
     def test_reset_hard_reset_recreates_cluster(self, probe_service_mock) -> None:
         probe_service_mock.return_value = ServiceProbe("ok", "error", 503, 250, 0.7)
         executor = StubExecutor()
@@ -191,7 +201,7 @@ class EnvironmentLoopTests(unittest.TestCase):
         self.assertIn("CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./cleanup.sh", executor.commands)
         self.assertIn("CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./setup.sh", executor.commands)
 
-    @patch("env.probe_service")
+    @patch("tron.env.probe_service")
     def test_reset_reports_exact_restore_command_on_failure(self, probe_service_mock) -> None:
         probe_service_mock.return_value = ServiceProbe("ok", "error", 503, 250, 0.7)
         env = TronEnvironment(
@@ -208,7 +218,7 @@ class EnvironmentLoopTests(unittest.TestCase):
         self.assertIn("kubectl -n tron apply --validate=false -f manifests/nginx.yaml", str(ctx.exception))
         self.assertIn("mock nginx apply failure", str(ctx.exception))
 
-    @patch("env.probe_service")
+    @patch("tron.env.probe_service")
     def test_reset_raises_when_resource_incident_is_not_externally_visible(self, probe_service_mock) -> None:
         probe_service_mock.return_value = ServiceProbe("ok", "ok", 200, 90, 1.0)
         env = TronEnvironment(
@@ -223,7 +233,7 @@ class EnvironmentLoopTests(unittest.TestCase):
 
         self.assertIn("scenario did not become externally visible", str(ctx.exception))
 
-    @patch("env.probe_service")
+    @patch("tron.env.probe_service")
     def test_reset_allows_non_degrading_probe_scenario(self, probe_service_mock) -> None:
         probe_service_mock.return_value = ServiceProbe("ok", "ok", 200, 90, 1.0)
         env = TronEnvironment(
@@ -237,7 +247,7 @@ class EnvironmentLoopTests(unittest.TestCase):
 
         self.assertEqual(observation.service_probe.score, 1.0)
 
-    @patch("env.probe_service")
+    @patch("tron.env.probe_service")
     def test_reset_allows_unreachable_scaled_to_zero_incident(self, probe_service_mock) -> None:
         probe_service_mock.return_value = ServiceProbe("unreachable", "unreachable", None, None, 0.0)
         env = TronEnvironment(
@@ -251,7 +261,22 @@ class EnvironmentLoopTests(unittest.TestCase):
 
         self.assertEqual(observation.service_probe.score, 0.0)
 
-    @patch("env.probe_service")
+    @patch("tron.env.probe_service")
+    def test_reset_raises_when_cluster_side_clue_is_missing(self, probe_service_mock) -> None:
+        probe_service_mock.return_value = ServiceProbe("ok", "error", 503, 250, 0.7)
+        env = TronEnvironment(
+            BenchmarkConfig(max_agent_steps=4, mutation_settle_seconds=0.0),
+            executor=StubExecutor(),
+            catalog=load_catalog(),
+            incident_engine=MissingClueIncidentEngine(),
+        )
+
+        with self.assertRaises(RuntimeError) as ctx:
+            env.reset(scenario_id="bad-rollout-wrong-redis-host", seed=17)
+
+        self.assertIn("scenario cluster clues missing", str(ctx.exception))
+
+    @patch("tron.env.probe_service")
     def test_step_updates_reward_and_completion(self, probe_service_mock) -> None:
         instance = sample_scenario(load_catalog(), seed=17, scenario_id="bad-rollout-wrong-redis-host")
         probe_service_mock.side_effect = [
@@ -275,7 +300,7 @@ class EnvironmentLoopTests(unittest.TestCase):
         self.assertEqual(env.step_number, 1)
         self.assertEqual(env.steps[0].command, "kubectl get pods -n tron")
 
-    @patch("env.probe_service")
+    @patch("tron.env.probe_service")
     def test_discriminating_read_bonus_applies_for_networkpolicy_read(self, probe_service_mock) -> None:
         instance = sample_scenario(load_catalog(), seed=13, scenario_id="networkpolicy-blocks-nginx-to-redis")
         probe_service_mock.side_effect = [
@@ -296,7 +321,7 @@ class EnvironmentLoopTests(unittest.TestCase):
 
         self.assertEqual(transition.reward, 0.02)
 
-    @patch("env.probe_service")
+    @patch("tron.env.probe_service")
     def test_repeated_no_effect_restart_gets_penalty(self, probe_service_mock) -> None:
         instance = sample_scenario(load_catalog(), seed=17, scenario_id="bad-rollout-wrong-redis-host")
         probe_service_mock.side_effect = [
@@ -320,7 +345,7 @@ class EnvironmentLoopTests(unittest.TestCase):
         self.assertEqual(first.reward, 0.0)
         self.assertEqual(second.reward, -0.05)
 
-    @patch("env.probe_service")
+    @patch("tron.env.probe_service")
     def test_third_no_effect_restart_gets_stronger_penalty(self, probe_service_mock) -> None:
         instance = sample_scenario(load_catalog(), seed=17, scenario_id="bad-rollout-wrong-redis-host")
         probe_service_mock.side_effect = [
@@ -346,7 +371,7 @@ class EnvironmentLoopTests(unittest.TestCase):
         self.assertEqual(second.reward, -0.05)
         self.assertEqual(third.reward, -0.1)
 
-    @patch("env.probe_service")
+    @patch("tron.env.probe_service")
     def test_live_runtime_read_gets_bonus(self, probe_service_mock) -> None:
         instance = sample_scenario(load_catalog(), seed=17, scenario_id="bad-rollout-wrong-redis-host")
         probe_service_mock.side_effect = [

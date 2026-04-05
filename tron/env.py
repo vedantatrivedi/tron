@@ -3,23 +3,28 @@ from __future__ import annotations
 """Explicit benchmark environment loop for tron."""
 
 import time
-from dataclasses import asdict
-
-from executor import CommandExecutor
-from incident_engine import IncidentEngine
-from models import (
+from tron.checks import format_failed_checks
+from tron.executor import CommandExecutor
+from tron.incident_engine import IncidentEngine
+from tron.models import (
     AgentStep,
     BenchmarkConfig,
     EvaluationRecord,
     ObservationBundle,
     ScenarioInstance,
-    ScenarioKind,
     StepTransition,
 )
-from observations import collect_observations
-from oracle import evaluate_repair, probe_service
-from sampler import sample_scenario
-from scenario_catalog import load_catalog
+from tron.observations import collect_observations
+from tron.oracle import evaluate_repair, probe_service
+from tron.rewards import discriminating_read_bonus, repeated_no_effect_penalty
+from tron.runtime_setup import (
+    build_baseline_restore_commands,
+    build_cluster_env_prefix,
+    build_hard_reset_commands,
+    run_checked_commands,
+)
+from tron.sampler import sample_scenario
+from tron.scenario_catalog import load_catalog
 
 
 class TronEnvironment:
@@ -42,121 +47,40 @@ class TronEnvironment:
         self.done: bool = False
         self.steps: list[AgentStep] = []
 
-    def _raise_command_failure(self, stage: str, command: str, result) -> None:
-        details = result.stderr or result.stdout or "command failed with no output"
-        raise RuntimeError(f"{stage} failed for `{command}`: {details}")
-
-    def _command_family(self, command: str) -> str:
-        lowered = command.lower()
-        if "configmap app-config" in lowered:
-            return "app_config"
-        if "networkpolicy" in lowered:
-            return "network_policy"
-        if "service redis" in lowered:
-            return "redis_service"
-        if "endpoints redis" in lowered:
-            return "redis_endpoints"
-        if "ingress" in lowered:
-            return "ingress"
-        if "rollout restart deployment/nginx" in lowered:
-            return "restart_nginx"
-        if "rollout restart deployment/redis" in lowered:
-            return "restart_redis"
-        if "deployment nginx" in lowered:
-            return "nginx_deployment"
-        if "logs" in lowered and "redis-bridge" in lowered:
-            return "bridge_logs"
-        if (
-            ("get pods" in lowered or "get pod" in lowered or "exec " in lowered)
-            and "redis_host" in lowered
-        ):
-            return "live_runtime_env"
-        return "other"
-
-    def _discriminating_read_bonus(self, action: str, result) -> float:
-        if result.return_code != 0:
-            return 0.0
-        family = self._command_family(action)
-        stdout = result.stdout or ""
-        if family == "app_config" and "REDIS_HOST:" in stdout:
-            return 0.02
-        if family == "redis_service" and "selector:" in stdout:
-            return 0.02
-        if family == "redis_endpoints" and stdout.strip():
-            return 0.02
-        if family == "network_policy" and ("kind: NetworkPolicy" in stdout or "items:" in stdout):
-            return 0.02
-        if family == "nginx_deployment" and stdout.strip():
-            return 0.02
-        if family == "bridge_logs" and stdout.strip():
-            return 0.02
-        if family == "live_runtime_env" and stdout.strip():
-            return 0.03
-        return 0.0
-
-    def _repeated_no_effect_penalty(self, action: str, service_score: float) -> float:
-        family = self._command_family(action)
-        if family == "other":
-            return 0.0
-        if service_score != self.current_service_score:
-            return 0.0
-        recent_same_family = 0
-        for previous in reversed(self.steps):
-            previous_family = self._command_family(previous.command)
-            if previous_family != family:
-                break
-            if previous.reward > 0:
-                break
-            recent_same_family += 1
-        if recent_same_family == 0:
-            return 0.0
-        if family in {"restart_nginx", "restart_redis"}:
-            return -0.05 * min(recent_same_family, 3)
-        if family in {"redis_service", "network_policy"}:
-            return -0.05
-        return 0.0
-
     def _cluster_env_prefix(self) -> str:
-        return (
-            f"CLUSTER_NAME={self.config.cluster.cluster_name} "
-            f"INGRESS_HOST={self.config.cluster.ingress_host} "
-            f"INGRESS_PORT={self.config.cluster.ingress_port} "
-            f"NAMESPACE={self.config.cluster.namespace}"
-        )
+        return build_cluster_env_prefix(self.config.cluster)
 
     def reset_cluster(self) -> None:
-        prefix = self._cluster_env_prefix()
-        cleanup_command = f"{prefix} bash ./cleanup.sh"
-        result = self.executor.run(
-            cleanup_command,
+        run_checked_commands(
+            self.executor,
+            build_hard_reset_commands(self.config.cluster),
             timeout=self.config.trusted_timeout_seconds,
+            stage="cluster reset",
         )
-        if result.return_code != 0:
-            self._raise_command_failure("cluster cleanup", cleanup_command, result)
-        setup_command = f"{prefix} bash ./setup.sh"
-        result = self.executor.run(
-            setup_command,
-            timeout=self.config.trusted_timeout_seconds,
-        )
-        if result.return_code != 0:
-            self._raise_command_failure("cluster setup", setup_command, result)
 
     def restore_baseline(self) -> None:
-        commands = [
-            "kubectl apply --validate=false -f manifests/namespace.yaml",
-            f"kubectl -n {self.config.cluster.namespace} apply --validate=false -f manifests/configmap.yaml",
-            f"kubectl -n {self.config.cluster.namespace} apply --validate=false -f manifests/redis.yaml",
-            f"kubectl -n {self.config.cluster.namespace} apply --validate=false -f manifests/nginx.yaml",
-            f"kubectl -n {self.config.cluster.namespace} apply --validate=false -f manifests/ingress.yaml",
-            f"kubectl -n {self.config.cluster.namespace} apply --validate=false -f manifests/networkpolicy-base.yaml",
-            f"kubectl -n {self.config.cluster.namespace} set env deployment/nginx REDIS_HOST-",
-            f"kubectl -n {self.config.cluster.namespace} rollout status deployment/redis --timeout=120s",
-            f"kubectl -n {self.config.cluster.namespace} rollout status deployment/nginx --timeout=120s",
-        ]
-        for command in commands:
-            result = self.executor.run(command, timeout=self.config.trusted_timeout_seconds)
-            if result.return_code != 0:
-                self._raise_command_failure("baseline restore", command, result)
+        run_checked_commands(
+            self.executor,
+            build_baseline_restore_commands(self.config.cluster.namespace),
+            timeout=self.config.trusted_timeout_seconds,
+            stage="baseline restore",
+        )
+
+    def _validate_instance_contract(self, instance: ScenarioInstance) -> None:
+        activation_failure = format_failed_checks(
+            "scenario activation failed: ",
+            self.incident_engine.verify_activation(instance),
+        )
+        if activation_failure:
+            raise RuntimeError(activation_failure)
+        if not instance.template.requires_service_degradation:
+            return
+        clue_failure = format_failed_checks(
+            "scenario cluster clues missing: ",
+            self.incident_engine.verify_cluster_clues(instance),
+        )
+        if clue_failure:
+            raise RuntimeError(clue_failure)
 
     def sample(self, scenario_id: str | None = None, seed: int | None = None) -> ScenarioInstance:
         return sample_scenario(
@@ -195,12 +119,7 @@ class TronEnvironment:
         while time.time() < deadline:
             observation = self.observe(instance)
             last_observation = observation
-            score = observation.service_probe.score
-
-            if instance.template.kind == ScenarioKind.INGRESS:
-                if score < 1.0:
-                    return observation
-            elif score < 1.0:
+            if observation.service_probe.score < 1.0:
                 return observation
 
             time.sleep(self.config.mutation_settle_seconds)
@@ -228,13 +147,7 @@ class TronEnvironment:
             self.restore_baseline()
         self.current_instance = self.sample(scenario_id=scenario_id, seed=seed)
         self.inject(self.current_instance)
-        activation = self.incident_engine.verify_activation(self.current_instance)
-        failed_checks = [check for check in activation if not check.ok]
-        if failed_checks:
-            raise RuntimeError(
-                "scenario activation failed: "
-                + ", ".join(f"{check.name} -> {check.details}" for check in failed_checks)
-            )
+        self._validate_instance_contract(self.current_instance)
 
         self.step_number = 0
         self.last_reward = 0.0
@@ -269,8 +182,13 @@ class TronEnvironment:
         reward = round(
             (observation.service_probe.score - self.current_service_score)
             + result.action_cost
-            + self._discriminating_read_bonus(action, result)
-            + self._repeated_no_effect_penalty(action, observation.service_probe.score),
+            + discriminating_read_bonus(action, result.return_code, result.stdout or "")
+            + repeated_no_effect_penalty(
+                action,
+                observation.service_probe.score,
+                self.current_service_score,
+                self.steps,
+            ),
             3,
         )
         observation.last_reward = reward
@@ -335,6 +253,6 @@ class TronEnvironment:
             "title": instance.template.title,
             "description": instance.template.description,
             "seed": instance.seed,
-            "parameters": asdict(instance).get("chosen_parameters", instance.chosen_parameters),
+            "parameters": instance.chosen_parameters,
             "recent_changes": instance.recent_changes,
         }

@@ -75,6 +75,7 @@ class ScenarioTemplate:
     activation_checks: list[RepairCheck]
     restore_commands: list[str]
     repair_checks: list[RepairCheck]
+    cluster_clue_checks: list[RepairCheck] = field(default_factory=list)
     distractor_commands: list[str] = field(default_factory=list)
     distractor_restore_commands: list[str] = field(default_factory=list)
     blackbox_url: str = "http://127.0.0.1:8080/data"

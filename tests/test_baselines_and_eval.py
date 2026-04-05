@@ -6,11 +6,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from tron.action_analysis import command_family
 from baseline import llm_agent, naive
 from eval import run_eval, summarize_results
-from models import BenchmarkConfig, ClusterSummary, ObservationBundle, ServiceProbe
-from sampler import sample_scenario
-from scenario_catalog import load_catalog
+from tron.models import BenchmarkConfig, ClusterSummary, ObservationBundle, ServiceProbe
+from tron.sampler import sample_scenario
+from tron.scenario_catalog import load_catalog
 
 
 def make_observation() -> ObservationBundle:
@@ -51,6 +52,13 @@ class NaiveAgentTests(unittest.TestCase):
 
 
 class LLMAgentTests(unittest.TestCase):
+    def test_command_family_is_shared_for_runtime_env_reads(self) -> None:
+        family = command_family(
+            "kubectl -n tron exec deployment/nginx -c redis-bridge -- printenv REDIS_HOST"
+        )
+
+        self.assertEqual(family, "live_runtime_env")
+
     def test_build_prompt_contains_tiered_observation_json(self) -> None:
         instance = sample_scenario(load_catalog(), seed=13, scenario_id="networkpolicy-blocks-nginx-to-redis")
         prompt = llm_agent.build_prompt(instance, make_observation(), history=[{"command": "kubectl -n tron get pods"}])
@@ -149,6 +157,7 @@ class SummaryTests(unittest.TestCase):
         rows = [
             {
                 "agent": "naive",
+                "scenario_id": "bad-rollout-wrong-redis-host",
                 "initial_service_score": 0.4,
                 "final_service_score": 1.0,
                 "total_reward": 0.3,
@@ -167,6 +176,25 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(summary["overall"]["avg_steps_to_full_recovery"], 3.0)
         self.assertEqual(summary["overall"]["repeated_ineffective_actions"], 1)
         self.assertEqual(summary["overall"]["full_recovery_rate"], 1.0)
+
+    def test_machine_report_contains_per_scenario_status(self) -> None:
+        rows = [
+            {
+                "agent": "llm",
+                "scenario_id": "service-selector-mismatch",
+                "step_count": 3,
+                "initial_service_score": 0.7,
+                "final_service_score": 1.0,
+                "total_reward": 0.2,
+                "steps": [],
+                "oracle": {"score": 1.0, "verdict": "success"},
+            }
+        ]
+
+        report = summarize_results.build_machine_report(rows)
+
+        self.assertIn("service-selector-mismatch", report["by_scenario"])
+        self.assertEqual(report["by_scenario"]["service-selector-mismatch"]["success_rate"], 1.0)
 
     def test_seed_plan_loader_supports_structured_scenarios(self) -> None:
         payload = "scenarios:\n  - id: bad-rollout-wrong-redis-host\n    seeds: [11, 21]\n"

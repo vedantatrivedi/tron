@@ -21,14 +21,14 @@ That makes it useful for comparing tool-using agents on incident response rather
 `tron` has five main layers:
 
 - Runtime app: a small two-tier app with `nginx` in front of a Redis-backed sidecar path. `/health` is intentionally shallow and `/data` exercises the backend path.
-- Scenario catalog: `scenario_catalog.py` defines single-root-cause and compound incident templates, plus seeded parameter variation.
-- Incident engine: `incident_engine.py` applies deterministic cluster mutations and verifies that the intended fault activated.
-- Environment loop: `env.py` handles `reset()`, `step(action)`, reward computation, and termination.
-- Oracle and eval: `oracle.py`, `eval/run_eval.py`, and `eval/summarize_results.py` score black-box recovery and summarize agent behavior.
+- Scenario catalog: `tron/scenario_catalog.py` defines single-root-cause and compound incident templates, plus seeded parameter variation.
+- Incident engine: `tron/incident_engine.py` applies deterministic cluster mutations and verifies that the intended fault activated.
+- Environment loop: `tron/env.py` handles `reset()`, `step(action)`, reward computation, and termination.
+- Oracle and eval: `tron/oracle.py`, `eval/run_eval.py`, and `eval/summarize_results.py` score black-box recovery and summarize agent behavior.
 
 ## Scenario catalog
 
-The current catalog includes 10 benchmark scenarios:
+The current catalog includes 12 benchmark scenarios:
 
 - `bad-rollout-wrong-redis-host`
 - `configmap-fixed-but-pods-stale`
@@ -38,6 +38,8 @@ The current catalog includes 10 benchmark scenarios:
 - `readiness-probe-too-permissive`
 - `networkpolicy-blocks-nginx-to-redis`
 - `ingress-path-rewrite-bug`
+- `bridge-crashloop-bad-command`
+- `deployment-scaled-to-zero`
 - `wrong-redis-host-plus-cpu-throttle`
 - `networkpolicy-plus-secondary-drift`
 
@@ -48,6 +50,32 @@ Exactly three recommended demo scenarios:
 - `wrong-redis-host-plus-cpu-throttle`
 
 Those three are also the default scenarios in [eval/seeds.yaml](/Users/vedantatrivedi/codex-projects/tron/eval/seeds.yaml).
+
+## Benchmark status
+
+Current strong scenarios for the structured smart baseline:
+
+- `bad-rollout-wrong-redis-host`
+- `configmap-fixed-but-pods-stale`
+- `service-selector-mismatch`
+- `readiness-probe-too-permissive`
+- `networkpolicy-blocks-nginx-to-redis`
+- `ingress-path-rewrite-bug`
+- `networkpolicy-plus-secondary-drift`
+
+Current weak scenarios:
+
+- `cpu-limits-too-low`
+- `memory-limits-too-low`
+- `wrong-redis-host-plus-cpu-throttle`
+
+Expected smart-agent behavior:
+
+- stay in namespace `tron`
+- use one targeted read to choose a failure domain
+- apply a durable fix rather than a temporary override
+- re-probe `/health` and `/data` after each repair
+- continue after workaround recovery until the oracle repair checks pass
 
 ## Observability philosophy
 
@@ -153,6 +181,22 @@ Summarize that run:
 
 If you want to inspect the live cluster between steps, run the setup first and then use `kubectl` directly against the `tron` namespace.
 
+## Run the evaluator demo
+
+Run a deterministic reviewer-facing demo with scripted repair steps:
+
+```bash
+.venv/bin/python eval/demo.py --scenario service-selector-mismatch --seed 11
+```
+
+This prints:
+
+- the live incident reset
+- each demo step intent and command
+- black-box recovery progress
+- final oracle verdict
+- a compact JSON demo summary
+
 ## Run the naive baseline
 
 ```bash
@@ -205,6 +249,12 @@ Run both baseline agents across the default demo scenarios:
 .venv/bin/python eval/summarize_results.py eval/results.jsonl
 ```
 
+Write a machine-readable benchmark report at the same time:
+
+```bash
+.venv/bin/python eval/summarize_results.py eval/results.jsonl --json-out eval/results-summary.json
+```
+
 The default seed plan is defined in [eval/seeds.yaml](/Users/vedantatrivedi/codex-projects/tron/eval/seeds.yaml). Each JSONL row includes:
 
 - agent name
@@ -222,6 +272,36 @@ Local unit-style validation:
 PYTHONPYCACHEPREFIX=.pycache .venv/bin/python -m unittest discover -s tests -q
 ```
 
+Or run the full local repo check bundle:
+
+```bash
+make ci
+```
+
+Containerized local quality smoke:
+
+```bash
+make docker-smoke
+```
+
+Install a pinned official OpenEnv CLI locally:
+
+```bash
+make openenv-install
+```
+
+Run the local OpenEnv check:
+
+```bash
+make openenv-check
+```
+
+Behavior:
+
+- if the official `openenv` CLI is installed and exposes `validate`, the repo runs `openenv validate openenv.yaml`
+- otherwise it falls back to the local contract test in [tests/test_openenv_contract.py](/Users/vedantatrivedi/codex-projects/tron/tests/test_openenv_contract.py)
+- the pinned OpenEnv reference used by `make openenv-install` is defined in [Makefile](/Users/vedantatrivedi/codex-projects/tron/Makefile)
+
 Live E2E validation against a disposable cluster:
 
 ```bash
@@ -229,3 +309,9 @@ TRON_RUN_E2E=1 .venv/bin/python -m unittest tests.test_e2e -q
 ```
 
 The E2E tests create an isolated `k3d` cluster, inject real incidents, verify degraded black-box behavior, restore the cluster, and assert recovery.
+
+GitHub Actions runs the same local quality gate on pushes to `main` and on pull requests:
+
+- `unittest` discovery
+- Python compile checks
+- shell syntax validation for the repo scripts
