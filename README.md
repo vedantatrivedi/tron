@@ -1,3 +1,15 @@
+---
+title: tron
+emoji: ⚡
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+tags:
+  - openenv
+---
+
 # tron
 
 `tron` is a live Kubernetes incident benchmark. It drops an agent into a disposable `k3d` cluster, hides most of the root-cause state, exposes only black-box service probes plus lightweight cluster summaries, and scores whether the agent repaired the system before the step budget runs out.
