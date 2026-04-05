@@ -35,9 +35,40 @@ report_runtime_config() {
     fi
 }
 
+# Keep a kubectl port-forward alive in the background so the service probe
+# (which hits 127.0.0.1:INGRESS_PORT) can reach the cluster ingress.
+# Controlled by INGRESS_PORT_FORWARD (default: enabled when KUBECONFIG_B64 is set).
+# Override the target with INGRESS_NAMESPACE / INGRESS_SVC env vars.
+start_ingress_port_forward() {
+    local port="${INGRESS_PORT:-8080}"
+    local namespace="${INGRESS_NAMESPACE:-ingress-nginx}"
+    local svc="${INGRESS_SVC:-ingress-nginx-controller}"
+
+    log "Starting ingress port-forward: svc/${svc} -n ${namespace} -> 127.0.0.1:${port}"
+
+    (
+        while true; do
+            kubectl port-forward \
+                -n "${namespace}" \
+                "svc/${svc}" \
+                "${port}:80" \
+                --address 127.0.0.1 2>&1 | while IFS= read -r line; do
+                    echo "[tron-container] port-forward: ${line}" >&2
+                done
+            echo "[tron-container] port-forward exited, restarting in 3s..." >&2
+            sleep 3
+        done
+    ) &
+}
+
 main() {
     maybe_write_kubeconfig
     report_runtime_config
+
+    # Start ingress port-forward when running against a remote cluster
+    if [[ -n "${KUBECONFIG_B64:-}" ]] || [[ "${INGRESS_PORT_FORWARD:-}" == "true" ]]; then
+        start_ingress_port_forward
+    fi
 
     if [[ "$#" -eq 0 ]]; then
         set -- make ci
