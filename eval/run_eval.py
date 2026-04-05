@@ -73,6 +73,8 @@ def classify_action(command: str) -> str:
         return "diagnostic"
     if " rollout history " in stripped:
         return "diagnostic"
+    if " rollout status " in stripped:
+        return "diagnostic"
     if stripped.startswith("kubectl exec "):
         return "diagnostic"
     return "destructive"
@@ -80,6 +82,28 @@ def classify_action(command: str) -> str:
 
 def _print_progress(message: str) -> None:
     print(message, flush=True)
+
+
+def _compact_text(value: str, max_len: int = 72) -> str:
+    single_line = " ".join(value.replace("\r", " ").replace("\n", " ").split())
+    if len(single_line) <= max_len:
+        return single_line
+    return single_line[: max_len - 3] + "..."
+
+
+def _describe_action(agent: Agent, action: str, instance, observation, history: list[dict]) -> str | None:
+    last_intent = getattr(agent, "last_intent", None)
+    if last_intent:
+        return str(last_intent)
+    describe_fn = getattr(agent, "describe_action", None)
+    if callable(describe_fn):
+        try:
+            description = describe_fn(action, instance, observation, history)
+        except Exception:
+            return None
+        if description:
+            return str(description)
+    return None
 
 
 def run_episode(
@@ -90,16 +114,19 @@ def run_episode(
     hard_reset: bool = False,
 ) -> dict:
     _print_progress(
-        f"[episode] agent={agent.name} scenario={scenario_id or 'sampled'} seed={seed} "
-        f"reset=start hard_reset={str(hard_reset).lower()}"
+        f"[episode] reset agent={agent.name} scenario={scenario_id or 'sampled'} "
+        f"seed={seed} hard_reset={str(hard_reset).lower()}"
     )
-    initial_observation = env.reset(scenario_id=scenario_id, seed=seed, hard_reset=hard_reset)
+    try:
+        initial_observation = env.reset(scenario_id=scenario_id, seed=seed, hard_reset=hard_reset)
+    except Exception as exc:
+        _print_progress(f"[episode] reset_error={_compact_text(str(exc), max_len=144)}")
+        raise
     if env.current_instance is None:
         raise RuntimeError("environment did not produce a scenario instance")
     instance = env.current_instance
     _print_progress(
-        f"[episode] agent={agent.name} scenario={instance.template.scenario_id} "
-        f"seed={seed} reset=done initial_score={initial_observation.service_probe.score:.2f} "
+        f"[episode] ready score={initial_observation.service_probe.score:.2f} "
         f"health={initial_observation.service_probe.health_status} "
         f"data={initial_observation.service_probe.data_status}"
     )
@@ -114,21 +141,24 @@ def run_episode(
         except Exception as exc:
             agent_error = str(exc)
             _print_progress(
-                f"[episode] agent={agent.name} scenario={instance.template.scenario_id} "
-                f"seed={seed} agent_error={agent_error}"
+                f"[episode] agent_error={_compact_text(agent_error, max_len=96)}"
             )
             break
         if not action:
-            _print_progress(
-                f"[episode] agent={agent.name} scenario={instance.template.scenario_id} "
-                f"seed={seed} action=none"
-            )
+            _print_progress("[episode] action=none")
             break
 
-        _print_progress(
-            f"[step {env.step_number + 1}] action={action}"
-        )
-        transition = env.step(action)
+        _print_progress(f"[step {env.step_number + 1}] action {_compact_text(action)}")
+        action_intent = _describe_action(agent, action, instance, observation, history)
+        if action_intent:
+            _print_progress(f"[step {env.step_number + 1}] intent {_compact_text(action_intent, max_len=96)}")
+        try:
+            transition = env.step(action)
+        except Exception as exc:
+            _print_progress(
+                f"[step {env.step_number + 1}] error {_compact_text(str(exc), max_len=144)}"
+            )
+            raise
         step = env.steps[-1]
         step_record = {
             "index": len(history) + 1,
@@ -148,21 +178,46 @@ def run_episode(
             "action_cost": transition.info.get("action_cost", 0.0),
         }
         history.append(step_record)
+        detail = ""
+        if step.return_code != 0 or step_record["rejected"] or step_record["timed_out"]:
+            detail_text = step.stderr or step.stdout or "non-zero return"
+            detail = f" detail={_compact_text(detail_text, max_len=72)}"
         _print_progress(
-            f"[step {step_record['index']}] return_code={step.return_code} "
+            f"[step {step_record['index']}] result rc={step.return_code} "
             f"reward={step.reward:.2f} score={transition.service_score:.2f} "
-            f"health={step_record['health_status']} data={step_record['data_status']}"
+            f"health={step_record['health_status']} data={step_record['data_status']}{detail}"
         )
         observation = transition.observation
         if transition.done:
+            if (
+                transition.service_score >= 1.0
+                and env.step_number < env.config.max_agent_steps
+            ):
+                try:
+                    interim_evaluation = env.evaluate(instance, env.steps)
+                except Exception as exc:
+                    _print_progress(
+                        f"[episode] interim_oracle_error={_compact_text(str(exc), max_len=144)}"
+                    )
+                    raise
+                if interim_evaluation.verdict.value == "success":
+                    break
+                env.done = False
+                _print_progress(
+                    f"[episode] repair_incomplete oracle={interim_evaluation.score:.2f} continuing"
+                )
+                continue
             break
 
-    evaluation = env.evaluate(instance, env.steps)
+    try:
+        evaluation = env.evaluate(instance, env.steps)
+    except Exception as exc:
+        _print_progress(f"[episode] oracle_error={_compact_text(str(exc), max_len=144)}")
+        raise
     final_probe = probe_service(env.config)
     total_reward = round(sum(step.reward for step in env.steps), 3)
     _print_progress(
-        f"[episode] agent={agent.name} scenario={instance.template.scenario_id} "
-        f"seed={seed} finished verdict={evaluation.verdict.value} "
+        f"[episode] done verdict={evaluation.verdict.value} "
         f"oracle={evaluation.score:.2f} total_reward={total_reward:.2f}"
     )
     return {
@@ -222,6 +277,12 @@ def main() -> None:
     selected_agents = ["naive", "llm"] if args.agent == "all" else [args.agent]
     scenario_filter = set(args.scenario)
     seed_override = args.seed
+
+    if scenario_filter:
+        existing_ids = {entry.get("id") for entry in seed_plan}
+        for scenario_id in sorted(scenario_filter):
+            if scenario_id not in existing_ids:
+                seed_plan.append({"id": scenario_id, "seeds": seed_override or [0]})
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)

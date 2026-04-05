@@ -15,14 +15,15 @@ class SupportsCommandExecution(Protocol):
 
 def _evaluate_check(executor: SupportsCommandExecution, check) -> CheckResult:
     result = executor.run_argv(check.command)
-    output = result.stdout or result.stderr
+    stdout = result.stdout
+    details = stdout or result.stderr
     if check.match_mode == "equals":
-        ok = result.return_code == 0 and output == check.success_substring
+        ok = result.return_code == 0 and stdout == check.success_substring
     elif check.success_substring:
-        ok = result.return_code == 0 and check.success_substring in output
+        ok = result.return_code == 0 and check.success_substring in stdout
     else:
-        ok = result.return_code == 0 and output == ""
-    return CheckResult(name=check.name, ok=ok, details=output)
+        ok = result.return_code == 0 and stdout == ""
+    return CheckResult(name=check.name, ok=ok, details=details)
 
 
 class IncidentEngine:
@@ -33,7 +34,7 @@ class IncidentEngine:
 
     def inject(self, instance: ScenarioInstance) -> list[str]:
         applied: list[str] = []
-        for command in instance.rendered_inject_commands:
+        for command in [*instance.rendered_inject_commands, *instance.rendered_distractor_commands]:
             result = self.executor.run(command)
             if result.return_code != 0:
                 raise RuntimeError(
@@ -47,7 +48,10 @@ class IncidentEngine:
 
     def restore(self, instance: ScenarioInstance) -> list[str]:
         restored: list[str] = []
-        for command in instance.rendered_restore_commands:
+        for command in [
+            *instance.rendered_restore_commands,
+            *instance.rendered_distractor_restore_commands,
+        ]:
             result = self.executor.run(command)
             if result.return_code != 0:
                 raise RuntimeError(

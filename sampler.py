@@ -101,7 +101,13 @@ def sample_scenario(
     }
     chosen_parameters = _resolve_coupled_parameters(template, chosen_parameters)
     rendered_inject_commands = [_render(cmd, chosen_parameters) for cmd in template.inject_commands]
+    rendered_distractor_commands = [
+        _render(cmd, chosen_parameters) for cmd in template.distractor_commands
+    ]
     rendered_restore_commands = [_render(cmd, chosen_parameters) for cmd in template.restore_commands]
+    rendered_distractor_restore_commands = [
+        _render(cmd, chosen_parameters) for cmd in template.distractor_restore_commands
+    ]
     recent_changes = [
         f"incident={template.id}",
         f"difficulty={template.difficulty}",
@@ -117,7 +123,9 @@ def sample_scenario(
         seed=seed,
         chosen_parameters=chosen_parameters,
         rendered_inject_commands=rendered_inject_commands,
+        rendered_distractor_commands=rendered_distractor_commands,
         rendered_restore_commands=rendered_restore_commands,
+        rendered_distractor_restore_commands=rendered_distractor_restore_commands,
         recent_changes=recent_changes,
     )
     return instance

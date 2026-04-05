@@ -30,6 +30,7 @@ class ClusterConfig:
     cluster_name: str = "tron-lab"
     namespace: str = "tron"
     kubecontext: str | None = None
+    kubeconfig_path: str | None = None
     ingress_host: str = "tron.localhost"
     ingress_port: int = 8080
     manifests_dir: Path = Path("manifests")
@@ -74,8 +75,11 @@ class ScenarioTemplate:
     activation_checks: list[RepairCheck]
     restore_commands: list[str]
     repair_checks: list[RepairCheck]
+    distractor_commands: list[str] = field(default_factory=list)
+    distractor_restore_commands: list[str] = field(default_factory=list)
     blackbox_url: str = "http://127.0.0.1:8080/data"
     expected_http_status: int = 200
+    requires_service_degradation: bool = True
     recent_change_templates: list[str] = field(default_factory=list)
 
     @property
@@ -93,12 +97,14 @@ class ScenarioInstance:
     seed: int
     chosen_parameters: dict[str, Any]
     rendered_inject_commands: list[str]
+    rendered_distractor_commands: list[str]
     rendered_restore_commands: list[str]
+    rendered_distractor_restore_commands: list[str]
     recent_changes: list[str]
 
     @property
     def rendered_commands(self) -> list[str]:
-        return self.rendered_inject_commands
+        return [*self.rendered_inject_commands, *self.rendered_distractor_commands]
 
 
 @dataclass

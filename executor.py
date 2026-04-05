@@ -30,9 +30,32 @@ class CommandResult:
 
 
 class CommandExecutor:
-    def __init__(self, cwd: str | None = None, output_limit: int = 4000) -> None:
+    def __init__(
+        self,
+        cwd: str | None = None,
+        output_limit: int = 4000,
+        kubeconfig_path: str | None = None,
+    ) -> None:
         self.cwd = cwd
         self.output_limit = output_limit
+        self.kubeconfig_path = kubeconfig_path
+
+    def _augment_kubectl_argv(self, argv: list[str]) -> list[str]:
+        if not self.kubeconfig_path or not argv or argv[0] != "kubectl":
+            return argv
+        if any(part == "--kubeconfig" or part.startswith("--kubeconfig=") for part in argv[1:]):
+            return argv
+        return ["kubectl", "--kubeconfig", self.kubeconfig_path, *argv[1:]]
+
+    def _augment_kubectl_command(self, command: str) -> str:
+        if not self.kubeconfig_path:
+            return command
+        kubeconfig_flag = f"--kubeconfig {shlex.quote(self.kubeconfig_path)}"
+        updated = command
+        if updated.startswith("kubectl "):
+            updated = updated.replace("kubectl ", f"kubectl {kubeconfig_flag} ", 1)
+        updated = updated.replace("&& kubectl ", f"&& kubectl {kubeconfig_flag} ")
+        return updated
 
     def _coerce_text(self, value: str | bytes) -> str:
         if isinstance(value, bytes):
@@ -47,6 +70,7 @@ class CommandExecutor:
         return stripped[: self.output_limit].rstrip() + "\n...[truncated]"
 
     def run(self, command: str, timeout: float = 20.0) -> CommandResult:
+        command = self._augment_kubectl_command(command)
         try:
             completed = subprocess.run(
                 command,
@@ -72,6 +96,7 @@ class CommandExecutor:
         )
 
     def run_argv(self, argv: list[str], timeout: float = 20.0) -> CommandResult:
+        argv = self._augment_kubectl_argv(argv)
         try:
             completed = subprocess.run(
                 argv,
@@ -107,6 +132,14 @@ class CommandExecutor:
             return False, "empty command"
         if argv[0] not in ALLOWED_ACTION_BINARIES:
             return False, "only kubectl and curl actions are allowed"
+        if argv[0] == "kubectl" and "edit" in argv[1:]:
+            return False, "kubectl edit is not allowed in this non-interactive benchmark"
+        if argv[0] == "kubectl" and "scale" in argv[1:]:
+            return False, "kubectl scale is not allowed because it bypasses benchmark repairs"
+        if argv and argv[0] == "kubectl":
+            resource_tokens = {token.lower() for token in argv[1:]}
+            if {"rs", "replicaset", "replicasets"} & resource_tokens:
+                return False, "direct ReplicaSet mutation is not allowed in this benchmark"
         if any(token in {"|", "&&", "||", ";", ">", ">>", "<"} for token in argv):
             return False, "shell control operators are not allowed"
         return True, ""
