@@ -170,11 +170,22 @@ The LLM baseline emits exactly one `kubectl` or `curl` command per turn. It is p
 - Anthropic messages via `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, and optional `ANTHROPIC_BASE_URL`
 - offline fallback via `TRON_LLM_PLAN`, a newline-separated command list
 
+You can configure those through a local `.env` file. A starter template is provided in [/.env.example](/Users/vedantatrivedi/codex-projects/tron/.env.example) and the real `/.env` is ignored by git.
+
+Default cheap model choices:
+
+- OpenAI: `gpt-5-mini`
+- Anthropic: `claude-3-haiku-20240307`
+
+Quick start:
+
+```bash
+cp .env.example .env
+```
+
 OpenAI example:
 
 ```bash
-export OPENAI_API_KEY=...
-export OPENAI_MODEL=gpt-4o-mini
 .venv/bin/python eval/run_eval.py --agent llm --output eval/llm-results.jsonl
 ```
 
