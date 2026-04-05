@@ -35,39 +35,51 @@ report_runtime_config() {
     fi
 }
 
-# Keep a kubectl port-forward alive in the background so the service probe
-# (which hits 127.0.0.1:INGRESS_PORT) can reach the cluster ingress.
-# Controlled by INGRESS_PORT_FORWARD (default: enabled when KUBECONFIG_B64 is set).
-# Override the target with INGRESS_NAMESPACE / INGRESS_SVC env vars.
-start_ingress_port_forward() {
-    local port="${INGRESS_PORT:-8080}"
-    local namespace="${INGRESS_NAMESPACE:-ingress-nginx}"
-    local svc="${INGRESS_SVC:-ingress-nginx-controller}"
+# Auto-detect the ingress controller's external IP so the service probe can
+# reach it directly. Tries nginx ingress then traefik (k3s default).
+# Sets INGRESS_URL_HOST and INGRESS_PORT=80 if not already configured.
+auto_detect_ingress_host() {
+    if [[ -n "${INGRESS_URL_HOST:-}" ]]; then
+        log "Using configured ingress host: ${INGRESS_URL_HOST}:${INGRESS_PORT:-80}"
+        return 0
+    fi
 
-    log "Starting ingress port-forward: svc/${svc} -n ${namespace} -> 127.0.0.1:${port}"
+    local ip=""
 
-    (
-        while true; do
-            kubectl port-forward \
-                -n "${namespace}" \
-                "svc/${svc}" \
-                "${port}:80" \
-                --address 127.0.0.1 2>&1 | while IFS= read -r line; do
-                    echo "[tron-container] port-forward: ${line}" >&2
-                done
-            echo "[tron-container] port-forward exited, restarting in 3s..." >&2
-            sleep 3
-        done
-    ) &
+    # nginx ingress controller (ip, then hostname fallback)
+    ip=$(kubectl get svc -n ingress-nginx ingress-nginx-controller \
+        -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+    if [[ -z "$ip" ]]; then
+        ip=$(kubectl get svc -n ingress-nginx ingress-nginx-controller \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+    fi
+
+    # traefik (k3s default, ip then hostname)
+    if [[ -z "$ip" ]]; then
+        ip=$(kubectl get svc -n kube-system traefik \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+    fi
+    if [[ -z "$ip" ]]; then
+        ip=$(kubectl get svc -n kube-system traefik \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+    fi
+
+    if [[ -n "$ip" ]]; then
+        export INGRESS_URL_HOST="$ip"
+        export INGRESS_PORT="${INGRESS_PORT:-80}"
+        log "Auto-detected ingress at ${INGRESS_URL_HOST}:${INGRESS_PORT}"
+    else
+        log "WARNING: could not auto-detect ingress external IP; service probe may show unreachable"
+        log "  Set INGRESS_URL_HOST and INGRESS_PORT manually to fix this"
+    fi
 }
 
 main() {
     maybe_write_kubeconfig
     report_runtime_config
 
-    # Start ingress port-forward when running against a remote cluster
-    if [[ -n "${KUBECONFIG_B64:-}" ]] || [[ "${INGRESS_PORT_FORWARD:-}" == "true" ]]; then
-        start_ingress_port_forward
+    if [[ -n "${KUBECONFIG_B64:-}" ]]; then
+        auto_detect_ingress_host
     fi
 
     if [[ "$#" -eq 0 ]]; then
