@@ -2,8 +2,11 @@ from __future__ import annotations
 
 """Explicit benchmark environment loop for tron."""
 
+import logging
 import time
 from tron.checks import format_failed_checks
+
+logger = logging.getLogger("tron.env")
 from tron.executor import CommandExecutor
 from tron.incident_engine import IncidentEngine
 from tron.models import (
@@ -54,28 +57,35 @@ class TronEnvironment:
         return build_cluster_env_prefix(self.config.cluster)
 
     def reset_cluster(self) -> None:
+        logger.info("[setup] hard reset: running cleanup.sh + setup.sh")
         run_checked_commands(
             self.executor,
             build_hard_reset_commands(self.config.cluster),
             timeout=self.config.trusted_timeout_seconds,
             stage="cluster reset",
         )
+        logger.info("[setup] hard reset complete")
 
     def restore_baseline(self) -> None:
+        logger.info("[setup] restoring baseline manifests (namespace=%s)", self.config.cluster.namespace)
         run_checked_commands(
             self.executor,
             build_baseline_restore_commands(self.config.cluster.namespace),
             timeout=self.config.trusted_timeout_seconds,
             stage="baseline restore",
         )
+        logger.info("[setup] baseline restore complete")
 
     def _validate_instance_contract(self, instance: ScenarioInstance) -> None:
+        logger.info("[setup] validating activation checks for scenario=%s", instance.template.scenario_id)
         activation_failure = format_failed_checks(
             "scenario activation failed: ",
             self.incident_engine.verify_activation(instance),
         )
         if activation_failure:
+            logger.error("[setup] activation FAILED: %s", activation_failure)
             raise RuntimeError(activation_failure)
+        logger.info("[setup] activation checks passed")
         if not instance.template.requires_service_degradation:
             return
         clue_failure = format_failed_checks(
@@ -83,7 +93,9 @@ class TronEnvironment:
             self.incident_engine.verify_cluster_clues(instance),
         )
         if clue_failure:
+            logger.error("[setup] cluster clue checks FAILED: %s", clue_failure)
             raise RuntimeError(clue_failure)
+        logger.info("[setup] cluster clue checks passed")
 
     def sample(self, scenario_id: str | None = None, seed: int | None = None) -> ScenarioInstance:
         return sample_scenario(
@@ -115,13 +127,27 @@ class TronEnvironment:
 
     def _wait_for_incident_observation(self, instance: ScenarioInstance) -> ObservationBundle:
         if not instance.template.requires_service_degradation:
-            return self.observe(instance)
+            obs = self.observe(instance)
+            logger.info(
+                "[setup] initial observation score=%.2f health=%s data=%s",
+                obs.service_probe.score,
+                obs.service_probe.health_status,
+                obs.service_probe.data_status,
+            )
+            return obs
+        logger.info("[setup] waiting for incident to become externally visible...")
         deadline = time.time() + self.config.trusted_timeout_seconds
         last_observation: ObservationBundle | None = None
 
         while time.time() < deadline:
             observation = self.observe(instance)
             last_observation = observation
+            logger.info(
+                "[setup] probe score=%.2f health=%s data=%s",
+                observation.service_probe.score,
+                observation.service_probe.health_status,
+                observation.service_probe.data_status,
+            )
             if observation.service_probe.score < 1.0:
                 return observation
 
@@ -149,7 +175,16 @@ class TronEnvironment:
         else:
             self.restore_baseline()
         self.current_instance = self.sample(scenario_id=scenario_id, seed=seed)
+        logger.info(
+            "[setup] injecting scenario=%s seed=%d difficulty=%s",
+            self.current_instance.template.scenario_id,
+            self.current_instance.seed,
+            self.current_instance.template.difficulty,
+        )
+        for hint in self.current_instance.recent_changes:
+            logger.info("[setup] recent_change: %s", hint)
         self.inject(self.current_instance)
+        logger.info("[setup] injection complete, running activation checks")
         self._validate_instance_contract(self.current_instance)
 
         self.step_number = 0
@@ -172,6 +207,15 @@ class TronEnvironment:
             action,
             timeout=self.config.action_timeout_seconds,
         )
+        if result.rejected:
+            logger.warning("[step %d] REJECTED: %s", self.step_number + 1, action)
+        elif result.timed_out:
+            logger.warning("[step %d] TIMEOUT: %s", self.step_number + 1, action)
+        elif result.return_code != 0:
+            detail = (result.stderr or result.stdout or "").replace("\n", " ")[:120]
+            logger.warning("[step %d] rc=%d: %s | %s", self.step_number + 1, result.return_code, action, detail)
+        else:
+            logger.info("[step %d] rc=0: %s", self.step_number + 1, action)
         if self.executor.is_mutating(action) and not result.rejected:
             time.sleep(self.config.mutation_settle_seconds)
 
@@ -205,6 +249,15 @@ class TronEnvironment:
             or self.step_number >= self.config.max_agent_steps
         )
 
+        logger.info(
+            "[step %d] reward=%+.3f score=%.2f health=%s data=%s",
+            self.step_number,
+            reward,
+            observation.service_probe.score,
+            observation.service_probe.health_status,
+            observation.service_probe.data_status,
+        )
+
         self.steps.append(
             AgentStep(
                 command=action,
@@ -236,19 +289,25 @@ class TronEnvironment:
         return self.steps
 
     def evaluate(self, instance: ScenarioInstance, steps: list[AgentStep]) -> EvaluationRecord:
+        logger.info("[evaluate] running oracle for scenario=%s steps=%d", instance.template.scenario_id, len(steps))
         observations = self.current_observation or self.observe(
             instance,
             step_number=self.step_number,
             last_action=self.steps[-1].command if self.steps else None,
             last_reward=self.last_reward,
         )
-        return evaluate_repair(
+        record = evaluate_repair(
             self.executor,
             self.config,
             instance,
             observations,
             steps,
         )
+        logger.info("[evaluate] verdict=%s oracle=%.2f | %s", record.verdict.value, record.score, record.summary)
+        for check in record.checks:
+            mark = "PASS" if check.ok else "FAIL"
+            logger.info("[evaluate] check %s %s: %s", mark, check.name, check.details)
+        return record
 
     def describe_instance(self, instance: ScenarioInstance) -> dict:
         return {
