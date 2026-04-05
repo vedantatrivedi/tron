@@ -1,8 +1,8 @@
 ---
 title: tron
-emoji: ⚡
-colorFrom: blue
-colorTo: green
+emoji: 🔷
+colorFrom: indigo
+colorTo: cyan
 sdk: docker
 app_port: 7860
 pinned: false
@@ -10,11 +10,19 @@ tags:
   - openenv
 ---
 
-# tron
+```
+████████╗██████╗  ██████╗ ███╗   ██╗
+╚══██╔══╝██╔══██╗██╔═══██╗████╗  ██║
+   ██║   ██████╔╝██║   ██║██╔██╗ ██║
+   ██║   ██╔══██╗██║   ██║██║╚██╗██║
+   ██║   ██║  ██║╚██████╔╝██║ ╚████║
+   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
+─── ENTER THE GRID ──────────────────────────────────────────
+```
 
-`tron` is a live Kubernetes incident benchmark. It drops an agent into a disposable `k3d` cluster, hides most of the root-cause state, exposes only black-box service probes plus lightweight cluster summaries, and scores whether the agent repaired the system before the step budget runs out.
+**tron** is a live Kubernetes incident benchmark. An agent enters a running cluster where something is already broken. Observability is partial. Root cause is hidden. The clock is ticking.
 
-This is a benchmark, not a product. The point is to measure diagnosis-and-repair behavior under realistic operational pressure, not to provide a polished management plane.
+Score is based on whether the agent restores service — not on whether it can explain the fault.
 
 ## Why it exists
 
