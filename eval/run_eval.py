@@ -36,6 +36,8 @@ def _to_jsonable(value: Any):
         return value.value
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
@@ -76,16 +78,31 @@ def classify_action(command: str) -> str:
     return "destructive"
 
 
+def _print_progress(message: str) -> None:
+    print(message, flush=True)
+
+
 def run_episode(
     env: TronEnvironment,
     agent: Agent,
     scenario_id: str | None,
     seed: int,
+    hard_reset: bool = False,
 ) -> dict:
-    initial_observation = env.reset(scenario_id=scenario_id, seed=seed)
+    _print_progress(
+        f"[episode] agent={agent.name} scenario={scenario_id or 'sampled'} seed={seed} "
+        f"reset=start hard_reset={str(hard_reset).lower()}"
+    )
+    initial_observation = env.reset(scenario_id=scenario_id, seed=seed, hard_reset=hard_reset)
     if env.current_instance is None:
         raise RuntimeError("environment did not produce a scenario instance")
     instance = env.current_instance
+    _print_progress(
+        f"[episode] agent={agent.name} scenario={instance.template.scenario_id} "
+        f"seed={seed} reset=done initial_score={initial_observation.service_probe.score:.2f} "
+        f"health={initial_observation.service_probe.health_status} "
+        f"data={initial_observation.service_probe.data_status}"
+    )
 
     history: list[dict] = []
     observation = initial_observation
@@ -96,10 +113,21 @@ def run_episode(
             action = agent.next_action(instance, observation, history)
         except Exception as exc:
             agent_error = str(exc)
+            _print_progress(
+                f"[episode] agent={agent.name} scenario={instance.template.scenario_id} "
+                f"seed={seed} agent_error={agent_error}"
+            )
             break
         if not action:
+            _print_progress(
+                f"[episode] agent={agent.name} scenario={instance.template.scenario_id} "
+                f"seed={seed} action=none"
+            )
             break
 
+        _print_progress(
+            f"[step {env.step_number + 1}] action={action}"
+        )
         transition = env.step(action)
         step = env.steps[-1]
         step_record = {
@@ -120,6 +148,11 @@ def run_episode(
             "action_cost": transition.info.get("action_cost", 0.0),
         }
         history.append(step_record)
+        _print_progress(
+            f"[step {step_record['index']}] return_code={step.return_code} "
+            f"reward={step.reward:.2f} score={transition.service_score:.2f} "
+            f"health={step_record['health_status']} data={step_record['data_status']}"
+        )
         observation = transition.observation
         if transition.done:
             break
@@ -127,6 +160,11 @@ def run_episode(
     evaluation = env.evaluate(instance, env.steps)
     final_probe = probe_service(env.config)
     total_reward = round(sum(step.reward for step in env.steps), 3)
+    _print_progress(
+        f"[episode] agent={agent.name} scenario={instance.template.scenario_id} "
+        f"seed={seed} finished verdict={evaluation.verdict.value} "
+        f"oracle={evaluation.score:.2f} total_reward={total_reward:.2f}"
+    )
     return {
         "agent": agent.name,
         "scenario_id": instance.template.scenario_id,
@@ -174,6 +212,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-agent-steps", type=int, default=12)
     parser.add_argument("--cluster-name", default="tron-eval")
     parser.add_argument("--ingress-port", type=int, default=8080)
+    parser.add_argument("--hard-reset", action="store_true")
     return parser.parse_args()
 
 
@@ -209,7 +248,14 @@ def main() -> None:
                         ),
                     )
                     env = TronEnvironment(config)
-                    record = run_episode(env, agent, scenario_id=scenario_id, seed=seed)
+                    record = run_episode(
+                        env,
+                        agent,
+                        scenario_id=scenario_id,
+                        seed=seed,
+                        hard_reset=args.hard_reset,
+                    )
+                    print(f"Completed episode: agent={agent.name} scenario={record['scenario_id']} seed={seed}")
                     sink.write(json.dumps(record, default=_to_jsonable) + "\n")
                     print_compact_summary(record)
 

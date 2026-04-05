@@ -34,7 +34,13 @@ class CommandExecutor:
         self.cwd = cwd
         self.output_limit = output_limit
 
-    def _truncate(self, text: str) -> str:
+    def _coerce_text(self, value: str | bytes) -> str:
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return value
+
+    def _truncate(self, text: str | bytes) -> str:
+        text = self._coerce_text(text)
         stripped = text.strip()
         if len(stripped) <= self.output_limit:
             return stripped

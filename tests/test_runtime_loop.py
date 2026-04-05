@@ -34,8 +34,15 @@ class StubExecutor:
             "kubectl -n tron get services --no-headers": "nginx ClusterIP\nredis ClusterIP",
             "kubectl -n tron get deployments --no-headers": "nginx 1/1\nredis 1/1",
             "kubectl -n tron get endpoints --no-headers": "nginx 10.0.0.1:8080\nredis 10.0.0.2:6379",
-            "./cleanup.sh": "",
-            "./setup.sh": "",
+            "CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./cleanup.sh": "",
+            "CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./setup.sh": "",
+            "kubectl -n tron apply -f manifests/configmap.yaml": "",
+            "kubectl -n tron apply -f manifests/redis.yaml": "",
+            "kubectl -n tron apply -f manifests/nginx.yaml": "",
+            "kubectl -n tron apply -f manifests/ingress.yaml": "",
+            "kubectl -n tron apply -f manifests/networkpolicy-base.yaml": "",
+            "kubectl -n tron rollout status deployment/redis --timeout=120s": "",
+            "kubectl -n tron rollout status deployment/nginx --timeout=120s": "",
         }
         return StubCommandResult(command=command, return_code=0, stdout=mapping.get(command, ""), stderr="")
 
@@ -102,6 +109,38 @@ class ObservationTests(unittest.TestCase):
 
 
 class EnvironmentLoopTests(unittest.TestCase):
+    @patch("env.probe_service")
+    def test_reset_uses_in_cluster_restore_by_default(self, probe_service_mock) -> None:
+        probe_service_mock.return_value = ServiceProbe("ok", "error", 503, 250, 0.7)
+        executor = StubExecutor()
+        env = TronEnvironment(
+            BenchmarkConfig(max_agent_steps=4, mutation_settle_seconds=0.0),
+            executor=executor,
+            catalog=load_catalog(),
+            incident_engine=StubIncidentEngine(),
+        )
+
+        env.reset(scenario_id="bad-rollout-wrong-redis-host", seed=17)
+
+        self.assertIn("CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./setup.sh", executor.commands)
+        self.assertNotIn("CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./cleanup.sh", executor.commands)
+
+    @patch("env.probe_service")
+    def test_reset_hard_reset_recreates_cluster(self, probe_service_mock) -> None:
+        probe_service_mock.return_value = ServiceProbe("ok", "error", 503, 250, 0.7)
+        executor = StubExecutor()
+        env = TronEnvironment(
+            BenchmarkConfig(max_agent_steps=4, mutation_settle_seconds=0.0),
+            executor=executor,
+            catalog=load_catalog(),
+            incident_engine=StubIncidentEngine(),
+        )
+
+        env.reset(scenario_id="bad-rollout-wrong-redis-host", seed=17, hard_reset=True)
+
+        self.assertIn("CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./cleanup.sh", executor.commands)
+        self.assertIn("CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./setup.sh", executor.commands)
+
     @patch("env.probe_service")
     def test_step_updates_reward_and_completion(self, probe_service_mock) -> None:
         instance = sample_scenario(load_catalog(), seed=17, scenario_id="bad-rollout-wrong-redis-host")

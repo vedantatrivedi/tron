@@ -65,6 +65,23 @@ class TronEnvironment:
         if result.return_code != 0:
             raise RuntimeError(result.stderr or result.stdout)
 
+    def restore_baseline(self) -> None:
+        prefix = self._cluster_env_prefix()
+        commands = [
+            f"{prefix} bash ./setup.sh",
+            f"kubectl -n {self.config.cluster.namespace} apply -f manifests/configmap.yaml",
+            f"kubectl -n {self.config.cluster.namespace} apply -f manifests/redis.yaml",
+            f"kubectl -n {self.config.cluster.namespace} apply -f manifests/nginx.yaml",
+            f"kubectl -n {self.config.cluster.namespace} apply -f manifests/ingress.yaml",
+            f"kubectl -n {self.config.cluster.namespace} apply -f manifests/networkpolicy-base.yaml",
+            f"kubectl -n {self.config.cluster.namespace} rollout status deployment/redis --timeout=120s",
+            f"kubectl -n {self.config.cluster.namespace} rollout status deployment/nginx --timeout=120s",
+        ]
+        for command in commands:
+            result = self.executor.run(command, timeout=self.config.trusted_timeout_seconds)
+            if result.return_code != 0:
+                raise RuntimeError(result.stderr or result.stdout)
+
     def sample(self, scenario_id: str | None = None, seed: int | None = None) -> ScenarioInstance:
         return sample_scenario(
             self.catalog,
@@ -115,10 +132,18 @@ class TronEnvironment:
             raise RuntimeError("failed to collect post-injection observation")
         return last_observation
 
-    def reset(self, scenario_id: str | None = None, seed: int | None = None) -> ObservationBundle:
+    def reset(
+        self,
+        scenario_id: str | None = None,
+        seed: int | None = None,
+        hard_reset: bool = False,
+    ) -> ObservationBundle:
         """Restore baseline, inject a scenario, and return the first observation."""
 
-        self.reset_cluster()
+        if hard_reset:
+            self.reset_cluster()
+        else:
+            self.restore_baseline()
         self.current_instance = self.sample(scenario_id=scenario_id, seed=seed)
         self.inject(self.current_instance)
         activation = self.incident_engine.verify_activation(self.current_instance)
