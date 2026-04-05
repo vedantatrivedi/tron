@@ -55,6 +55,7 @@ shellcheck:
 	bash -n scripts/install-k3s.sh
 	bash -n scripts/openenv_check.sh
 	bash -n scripts/provision-ec2.sh
+	bash -n scripts/space_smoke.sh
 
 ci: test
 

@@ -37,6 +37,7 @@ class OpenEnvContractTests(unittest.TestCase):
         self.assertIn("openenv-check:", makefile)
         self.assertIn("OPENENV_REF ?= c719decf2b19175d5ca35301d58a14c83e985480", makefile)
         self.assertTrue((ROOT / "scripts" / "openenv_check.sh").exists())
+        self.assertTrue((ROOT / "scripts" / "space_smoke.sh").exists())
 
 
 if __name__ == "__main__":

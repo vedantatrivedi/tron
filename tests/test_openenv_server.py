@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import importlib
 import unittest
 from contextlib import redirect_stdout
 
@@ -165,6 +166,12 @@ class StaticPlanner:
 
 
 class OpenEnvServerTests(unittest.TestCase):
+    def test_repo_root_app_is_a_compatibility_shim(self) -> None:
+        root_app_module = importlib.import_module("app")
+
+        self.assertIs(root_app_module.app, importlib.import_module("tron_openenv.server.app").app)
+        self.assertIs(root_app_module.create_app, create_app)
+
     def test_service_lists_three_curated_tasks(self) -> None:
         service = TronOpenEnvService(env=FakeCoreEnv())
         task_ids = [task.id for task in service.list_tasks()]

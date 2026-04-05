@@ -406,6 +406,12 @@ To run the same baseline against a deployed Hugging Face Space, use the Space ru
 .venv/bin/python inference.py --env-base-url https://jj90999-tron.hf.space
 ```
 
+Reviewer-facing live Space smoke test:
+
+```bash
+bash scripts/space_smoke.sh https://jj90999-tron.hf.space
+```
+
 ---
 
 ## Demo And Evaluation
@@ -475,6 +481,21 @@ The container entrypoint also supports remote-cluster secrets:
 If those are present, [`scripts/container-entrypoint.sh`](scripts/container-entrypoint.sh) loads them before starting the container command.
 
 For remote EC2 setup, see [`scripts/README.md`](scripts/README.md).
+
+Smoke-test a live Space or local container end to end:
+
+```bash
+bash scripts/space_smoke.sh http://127.0.0.1:7860
+bash scripts/space_smoke.sh https://jj90999-tron.hf.space
+```
+
+Expected flow:
+
+- `GET /health` returns `{"status":"ok"}`
+- `POST /reset` returns a typed task and initial observation
+- `POST /step` returns typed `observation`, `reward`, `done`, and `info`
+- `GET /state` returns the current episode state
+- the script exits with `[space-smoke] passed`
 
 ---
 
