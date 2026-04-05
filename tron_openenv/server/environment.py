@@ -2,10 +2,13 @@ from __future__ import annotations
 
 """OpenEnv-compatible server adapter for the tron benchmark core."""
 
+import logging
 import os
 from pathlib import Path
 from threading import Lock
 from uuid import uuid4
+
+logger = logging.getLogger("tron.server")
 
 from tron.env import TronEnvironment
 from tron.models import BenchmarkConfig, ClusterConfig, ObservationBundle, StepTransition
@@ -131,9 +134,14 @@ class TronOpenEnvService:
         with self.lock:
             task = self._require_task(request.task_id)
             seed = request.seed if request.seed is not None else task.default_seed
+            scenario_id = TASK_SCENARIO_IDS[task.id]
             self.env.config.max_agent_steps = task.max_agent_steps
+            logger.info(
+                "[reset] task=%s scenario=%s seed=%d hard_reset=%s",
+                task.id, scenario_id, seed, request.hard_reset,
+            )
             observation = self.env.reset(
-                scenario_id=TASK_SCENARIO_IDS[task.id],
+                scenario_id=scenario_id,
                 seed=seed,
                 hard_reset=request.hard_reset,
             )
@@ -142,6 +150,14 @@ class TronOpenEnvService:
             self.episode_id = uuid4().hex
             self.cumulative_reward = 0.0
             self.last_evaluation = None
+            logger.info(
+                "[reset] episode=%s ready score=%.2f health=%s data=%s incident=%r",
+                self.episode_id[:8],
+                observation.service_probe.score,
+                observation.service_probe.health_status,
+                observation.service_probe.data_status,
+                observation.incident_brief,
+            )
             return ResetResponse(
                 task=task,
                 observation=self._observation_to_model(observation, done=False),
@@ -152,6 +168,7 @@ class TronOpenEnvService:
             if self.current_task is None or self.env.current_instance is None:
                 raise RuntimeError("reset() must be called before step()")
 
+            step_num = self.env.step_number + 1
             transition: StepTransition = self.env.step(action.command)
             self.cumulative_reward = round(self.cumulative_reward + transition.reward, 3)
             done = transition.done
@@ -164,6 +181,27 @@ class TronOpenEnvService:
                     "stdout": last_step.stdout,
                     "stderr": last_step.stderr,
                 }
+            )
+
+            rejected = info.get("rejected", False)
+            timed_out = info.get("timed_out", False)
+            detail = ""
+            if last_step.return_code != 0 or rejected or timed_out:
+                raw = last_step.stderr or last_step.stdout or ""
+                detail = " | " + raw.replace("\n", " ")[:120]
+            logger.info(
+                "[step %d] episode=%s rc=%d reward=%+.2f score=%.2f health=%s data=%s%s%s%s | %s",
+                step_num,
+                self.episode_id[:8] if self.episode_id else "?",
+                last_step.return_code,
+                transition.reward,
+                transition.service_score,
+                transition.observation.service_probe.health_status,
+                transition.observation.service_probe.data_status,
+                " REJECTED" if rejected else "",
+                " TIMEOUT" if timed_out else "",
+                detail,
+                action.command,
             )
 
             if transition.done:
@@ -185,8 +223,21 @@ class TronOpenEnvService:
                     self.env.done = False
                     done = False
                     info["repair_complete"] = False
+                    logger.info(
+                        "[step %d] repair_incomplete oracle=%.2f continuing",
+                        step_num, evaluation.score,
+                    )
                 else:
                     info["repair_complete"] = evaluation.verdict.value == "success"
+                    logger.info(
+                        "[episode] episode=%s verdict=%s oracle=%.2f reward=%.3f steps=%d | %s",
+                        self.episode_id[:8] if self.episode_id else "?",
+                        evaluation.verdict.value,
+                        evaluation.score,
+                        self.cumulative_reward,
+                        self.env.step_number,
+                        evaluation.summary,
+                    )
 
             return StepResponse(
                 observation=self._observation_to_model(transition.observation, done=done),

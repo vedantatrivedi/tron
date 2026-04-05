@@ -2,10 +2,17 @@ from __future__ import annotations
 
 """FastAPI application for the tron OpenEnv wrapper."""
 
+import logging
 import os
 
 from fastapi import FastAPI, HTTPException
 import uvicorn
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
 
 from tron_openenv.models import ResetRequest, ResetResponse, StepResponse, TronAction, TronState, TronTask
 from tron_openenv.server.environment import TronOpenEnvService
