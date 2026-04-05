@@ -171,6 +171,24 @@ class OpenEnvServerTests(unittest.TestCase):
         self.assertEqual(task_ids, ["easy", "medium", "hard"])
         self.assertEqual(TASKS["hard"].scenario_id, "networkpolicy-plus-secondary-drift")
 
+    def test_http_metadata_endpoints_expose_tasks(self) -> None:
+        app = create_app(TronOpenEnvService(env=FakeCoreEnv()))
+        client = TestClient(app)
+
+        root_response = client.get("/")
+        self.assertEqual(root_response.status_code, 200)
+        self.assertEqual(root_response.json()["name"], "tron")
+        self.assertEqual([item["id"] for item in root_response.json()["tasks"]], ["easy", "medium", "hard"])
+
+        info_response = client.get("/info")
+        self.assertEqual(info_response.status_code, 200)
+        self.assertEqual(info_response.json()["status"], "ok")
+        self.assertEqual([item["id"] for item in info_response.json()["tasks"]], ["easy", "medium", "hard"])
+
+        health_response = client.get("/health")
+        self.assertEqual(health_response.status_code, 200)
+        self.assertEqual(health_response.json(), {"status": "ok"})
+
     def test_http_reset_step_and_state_flow(self) -> None:
         app = create_app(TronOpenEnvService(env=FakeCoreEnv()))
         client = TestClient(app)

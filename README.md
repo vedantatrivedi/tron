@@ -282,6 +282,7 @@ The OpenEnv-style server exposes:
 | method | path | description |
 |---|---|---|
 | `GET` | `/` | metadata and task list |
+| `GET` | `/info` | metadata and task list alias for reviewers and Spaces |
 | `GET` | `/health` | liveness |
 | `GET` | `/tasks` | official task catalog |
 | `POST` | `/reset` | start an episode for a task id and seed |
@@ -302,6 +303,12 @@ Example step:
 curl -X POST http://127.0.0.1:7860/step \
   -H "Content-Type: application/json" \
   -d '{"command":"kubectl -n tron get pods"}'
+```
+
+Example state read:
+
+```bash
+curl http://127.0.0.1:7860/state
 ```
 
 ---
@@ -392,6 +399,12 @@ Optional flags:
 - `--hard-reset`
 
 `inference.py` emits structured stdout logs with `[START]`, `[STEP]`, and `[END]`.
+
+To run the same baseline against a deployed Hugging Face Space, use the Space runtime URL instead of the repo URL, for example:
+
+```bash
+.venv/bin/python inference.py --env-base-url https://jj90999-tron.hf.space
+```
 
 ---
 

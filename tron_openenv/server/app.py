@@ -15,13 +15,20 @@ def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
     runtime = service or TronOpenEnvService()
     app = FastAPI(title="tron OpenEnv server", version="1.0.0")
 
-    @app.get("/")
-    def root() -> dict[str, object]:
+    def metadata_payload() -> dict[str, object]:
         return {
             "name": "tron",
             "status": "ok",
             "tasks": [task.model_dump() for task in runtime.list_tasks()],
         }
+
+    @app.get("/")
+    def root() -> dict[str, object]:
+        return metadata_payload()
+
+    @app.get("/info")
+    def info() -> dict[str, object]:
+        return metadata_payload()
 
     @app.get("/health")
     def health() -> dict[str, str]:
