@@ -45,17 +45,16 @@ start_ingress_port_forward() {
 
     log "Starting port-forward: svc/${svc} -n ${namespace} -> 127.0.0.1:${port}"
 
+    # Run in a subshell with set +e so failures don't exit the loop.
+    # The nginx service is created during reset, not at startup, so early
+    # attempts are expected to fail until the baseline is restored.
     (
+        set +e
         while true; do
             kubectl port-forward \
-                -n "${namespace}" \
-                "svc/${svc}" \
-                "${port}:80" \
-                --address 127.0.0.1 2>&1 | while IFS= read -r line; do
-                    echo "[tron-container] port-forward: ${line}" >&2
-                done
-            echo "[tron-container] port-forward exited, restarting in 3s..." >&2
-            sleep 3
+                -n "${namespace}" "svc/${svc}" "${port}:80" \
+                --address 127.0.0.1 >/dev/null 2>&1
+            sleep 1
         done
     ) &
 }
