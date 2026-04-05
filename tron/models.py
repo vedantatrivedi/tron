@@ -33,6 +33,7 @@ class ClusterConfig:
     kubeconfig_path: str | None = None
     ingress_host: str = "tron.localhost"
     ingress_port: int = 8080
+    ingress_url_host: str | None = None
     manifests_dir: Path = Path("manifests")
 
 

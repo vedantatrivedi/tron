@@ -37,7 +37,8 @@ def _probe_url(url: str, host: str, timeout: float) -> tuple[str, int | None, in
 def probe_service(config: BenchmarkConfig) -> ServiceProbe:
     """Evaluate the live service as a black-box SLI."""
 
-    base_url = f"http://127.0.0.1:{config.cluster.ingress_port}"
+    probe_host = config.cluster.ingress_url_host or "127.0.0.1"
+    base_url = f"http://{probe_host}:{config.cluster.ingress_port}"
     health_status, health_http_status, _ = _probe_url(
         f"{base_url}/health",
         config.cluster.ingress_host,

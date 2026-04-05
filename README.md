@@ -10,150 +10,265 @@ tags:
   - openenv
 ---
 
-```
- ████████╗██████╗  ██████╗ ███╗   ██╗
- ╚══██╔══╝██╔══██╗██╔═══██╗████╗  ██║
-    ██║   ██████╔╝██║   ██║██╔██╗ ██║
-    ██║   ██╔══██╗██║   ██║██║╚██╗██║
-    ██║   ██║  ██║╚██████╔╝██║ ╚████║
-    ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
-```
+# tron
 
-> *The cluster is already broken. Observability is partial. Root cause is hidden.*
-> *You have 12 moves. Fix it — or get derezzed.*
+`tron` is a live Kubernetes incident benchmark and OpenEnv-style environment for evaluating diagnosis-and-repair agents under partial observability.
 
----
+The benchmark core runs realistic cluster mutations against a disposable `k3d` or remote k3s cluster. The OpenEnv wrapper exposes a typed HTTP API with:
 
-## what is this
+- `POST /reset`
+- `POST /step`
+- `GET /state`
+- typed Pydantic task, action, observation, reward, and state models
+- a root [`inference.py`](inference.py) baseline that uses the OpenAI client
 
-**tron** drops an agent into a live Kubernetes cluster mid-incident. No setup. No hints. Just a broken service and a step budget.
+## What the agent sees
 
-It measures **diagnosis-and-repair under pressure** — not code generation, not offline Q&A. The oracle doesn't care how you explain the fault. It cares whether `/data` returns `200`.
+Each episode starts with a broken service and a small observation bundle:
 
----
-
-## the grid
-
-A two-tier app: `nginx` → Redis-backed sidecar. One of 12 faults has been injected. The agent sees:
-
-- black-box probes of `/health` and `/data`
-- pod / service / deployment summaries
+- a black-box probe of `/health` and `/data`
+- compact summaries of pods, services, deployments, and endpoints
 - one recent-change hint
+- the previous action and reward
 
-It does **not** get logs, describe output, or event history unless it spends a turn asking.
+The agent does not automatically get logs, `describe`, or event history. It must spend steps on `kubectl` or `curl` to collect more evidence.
 
----
+## Official OpenEnv tasks
 
-## 12 scenarios
+The submission surface currently exposes three deterministic tasks:
 
-| scenario | type | difficulty |
-|---|---|---|
-| `bad-rollout-wrong-redis-host` | config | easy |
-| `configmap-fixed-but-pods-stale` | config | medium |
-| `service-selector-mismatch` | networking | easy |
-| `networkpolicy-blocks-nginx-to-redis` | networking | medium |
-| `ingress-path-rewrite-bug` | networking | medium |
-| `networkpolicy-plus-secondary-drift` | compound | hard |
-| `wrong-redis-host-plus-cpu-throttle` | compound | hard |
-| `cpu-limits-too-low` | resource | medium |
-| `memory-limits-too-low` | resource | medium |
-| `readiness-probe-too-permissive` | probe | medium |
-| `bridge-crashloop-bad-command` | crashloop | easy |
-| `deployment-scaled-to-zero` | deployment | easy |
+| task | scenario | difficulty | objective |
+|---|---|---|---|
+| `easy` | `service-selector-mismatch` | easy | Repair service-to-pod wiring so nginx can reach redis again. |
+| `medium` | `bad-rollout-wrong-redis-host` | medium | Repair config drift and ensure the serving workload picks up the durable fix. |
+| `hard` | `networkpolicy-plus-secondary-drift` | hard | Repair a compound outage spanning both policy and routing drift. |
 
----
+These are the tasks the root [`inference.py`](inference.py) baseline runs by default.
 
-## scoring
+## Current official baseline
 
-| score | meaning |
-|---|---|
-| `1.0` | fully healthy |
-| `0.7` | `/health` ok, data path degraded |
-| `0.4` | reachable, major errors |
-| `0.1` | timeout |
-| `0.0` | unreachable |
+Latest measured OpenEnv baseline run:
 
-Per-step reward: `Δ service_score + action_cost`
+- model: `gpt-5-mini`
+- seed: `11`
+- command: `.venv/bin/python inference.py --env-base-url http://127.0.0.1:8000 --seed 11`
 
-```
-kubectl get / describe / logs / curl   →  0.00
-kubectl exec                           → -0.02
-kubectl apply / set                    → -0.05
-kubectl rollout restart                → -0.10
-kubectl scale                          → -0.15
-kubectl delete                         → -0.30
-```
+Observed scores:
 
-Cheap reads are free. Destructive moves burn budget.
+- `easy` / `service-selector-mismatch`: `oracle_score=0.85`, `steps=12`, `verdict=failure`
+- `medium` / `bad-rollout-wrong-redis-host`: `oracle_score=0.50`, `steps=15`, `verdict=failure`
+- `hard` / `networkpolicy-plus-secondary-drift`: `oracle_score=0.60`, `steps=18`, `verdict=failure`
 
----
+This is an honest baseline, not a tuned best-case run. The OpenEnv wrapper is stable and reproducible, but the current model baseline still underperforms on durable repair closure.
 
-## API
+## Action, observation, and state spaces
 
-The Space exposes a REST API on port `7860`:
+Action space:
 
-| method | path | description |
-|---|---|---|
-| `GET` | `/info` | environment metadata, scenario list, action/observation schema |
-| `POST` | `/reset` | start a new episode, returns first observation |
-| `POST` | `/step` | execute one action, returns next observation + reward |
-| `GET` | `/observation` | current observation without advancing state |
-| `POST` | `/evaluate` | oracle verdict + repair score for the current episode |
-| `GET` | `/health` | liveness probe |
-| `GET` | `/docs` | interactive Swagger UI |
+- one typed action per turn: `{"command": "kubectl ..."}`
+- commands must begin with `kubectl` or `curl`
+- the runtime rejects interactive commands and benchmark-breaking shortcuts
 
-**Reset a scenario:**
+Observation space:
+
+- `incident_brief`
+- `step_count`
+- `last_action`
+- `last_reward`
+- `service_probe`
+  - `health_status`
+  - `data_status`
+  - `http_status`
+  - `latency_ms`
+  - `score`
+- `cluster_summary`
+  - `pods`
+  - `services`
+  - `deployments`
+  - `endpoints`
+- `recent_change_hint`
+- `done`
+
+State space:
+
+- `episode_id`
+- current `task` and `scenario_id`
+- `seed`
+- `step_count`
+- `cumulative_reward`
+- `last_action`
+- `last_reward`
+- `service_score`
+- `oracle_score`
+- `oracle_verdict`
+
+## Reward model
+
+Per-step reward is:
+
+`new_service_score - previous_service_score + action_cost`
+
+Action costs:
+
+- `kubectl get`, `describe`, `logs`, `top`, `rollout history`, `curl`: `0.0`
+- `kubectl exec`: `-0.02`
+- `kubectl apply`, `kubectl set`: `-0.05`
+- `kubectl edit`: `-0.08`
+- `kubectl rollout restart`: `-0.10`
+- `kubectl scale`: `-0.15`
+- `kubectl delete`: `-0.30`
+
+The final oracle score combines black-box recovery with scenario-specific repair checks, so workaround recoveries can still fail.
+
+## Scenario catalog
+
+The current benchmark catalog includes 12 scenarios:
+
+- `bad-rollout-wrong-redis-host`
+- `configmap-fixed-but-pods-stale`
+- `service-selector-mismatch`
+- `cpu-limits-too-low`
+- `memory-limits-too-low`
+- `readiness-probe-too-permissive`
+- `networkpolicy-blocks-nginx-to-redis`
+- `ingress-path-rewrite-bug`
+- `bridge-crashloop-bad-command`
+- `deployment-scaled-to-zero`
+- `wrong-redis-host-plus-cpu-throttle`
+- `networkpolicy-plus-secondary-drift`
+
+## OpenEnv wrapper layout
+
+The benchmark core lives under [`tron/`](tron/). The OpenEnv-facing surface lives under [`tron_openenv/`](tron_openenv/):
+
+- [`tron_openenv/models.py`](tron_openenv/models.py): typed task, action, observation, reward, and state models
+- [`tron_openenv/client.py`](tron_openenv/client.py): HTTP client for `reset()`, `step()`, and `state()`
+- [`tron_openenv/server/environment.py`](tron_openenv/server/environment.py): adapter from the benchmark core to the official task API
+- [`tron_openenv/server/app.py`](tron_openenv/server/app.py): FastAPI server used by the Docker image
+
+## HTTP API
+
+The OpenEnv-style server exposes:
+
+- `GET /` → metadata and task list
+- `GET /health` → liveness
+- `GET /tasks` → official task catalog
+- `POST /reset` → start an episode for a task id and seed
+- `POST /step` → execute one action and receive observation, reward, done, and info
+- `GET /state` → inspect the current episode state
+
+## Local setup
+
+Prerequisites:
+
+- Docker
+- `kubectl`
+- `k3d`
+- Python 3.9+
+
+Create a virtualenv and install dependencies:
+
 ```bash
-curl -X POST https://<space>/reset \
-  -H "Content-Type: application/json" \
-  -d '{"scenario_id": "bad-rollout-wrong-redis-host", "seed": 11}'
+python3 -m venv .venv
+. .venv/bin/activate
+.venv/bin/pip install -r requirements.txt
 ```
 
-**Take a step:**
-```bash
-curl -X POST https://<space>/step \
-  -H "Content-Type: application/json" \
-  -d '{"action": "kubectl -n tron get pods"}'
-```
-
----
-
-## run locally
+Bootstrap the local benchmark cluster:
 
 ```bash
-# prerequisites: Docker, k3d, Python 3.9+
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
+chmod +x setup.sh cleanup.sh app/test_client.sh
 ./setup.sh
-
-# run a scenario with the naive baseline
-python eval/run_eval.py --agent naive --scenario bad-rollout-wrong-redis-host --seed 11
-python eval/summarize_results.py eval/results.jsonl
-
-# run the LLM agent (copy .env.example → .env, add your key)
-cp .env.example .env
-python eval/run_eval.py --agent llm --output eval/llm-results.jsonl
-
-# run everything
-python eval/run_eval.py --agent all --output eval/results.jsonl
-python eval/summarize_results.py eval/results.jsonl
 ```
+
+Notes:
+
+- ingress is exposed on `http://127.0.0.1:8080`
+- `setup.sh` only pulls images if they are not already present locally
+- the app can be smoke-tested with `./app/test_client.sh`
+
+## Run the OpenEnv server and baseline inference
+
+Start the OpenEnv server locally:
 
 ```bash
-make ci           # full local gate
-make docker-smoke # containerized smoke
+.venv/bin/python -m tron_openenv.server.app
 ```
 
----
+By default this listens on `http://127.0.0.1:8000`.
 
-## remote cluster
+In another shell, run the required root inference script:
 
-Set these secrets and the container wires itself up automatically:
+```bash
+export API_BASE_URL=https://api.openai.com/v1
+export MODEL_NAME=gpt-5-mini
+export HF_TOKEN=$OPENAI_API_KEY
+.venv/bin/python inference.py --env-base-url http://127.0.0.1:8000
+```
 
-| var | value |
-|---|---|
-| `KUBECONFIG_B64` | base64-encoded kubeconfig for the remote k3s cluster |
-| `INGRESS_HOST` | EC2 public IP |
-| `INGRESS_PORT` | `8080` |
+Optional flags:
 
-See [`scripts/README.md`](scripts/README.md) to provision the EC2 k3s cluster.
+- `--task easy|medium|hard`
+- `--seed 11`
+- `--hard-reset`
+
+`inference.py` emits structured stdout logs with `[START]`, `[STEP]`, and `[END]`.
+
+## Docker and Hugging Face Spaces
+
+Build the container:
+
+```bash
+docker build -t tron-env .
+```
+
+Run it locally:
+
+```bash
+docker run --rm -p 7860:7860 tron-env
+```
+
+The Docker image starts the OpenEnv server and defaults to port `7860`, which matches Hugging Face Spaces.
+
+For a remote EC2 or k3s-backed deployment, the container entrypoint supports:
+
+- `KUBECONFIG_B64`
+- `INGRESS_HOST`
+- `INGRESS_PORT`
+- `INGRESS_HOST_HEADER`
+
+## Quality checks
+
+Run the full local gate:
+
+```bash
+make ci
+```
+
+Run the container smoke path:
+
+```bash
+make docker-smoke
+```
+
+Run the local OpenEnv tooling check:
+
+```bash
+make openenv-check
+```
+
+## Deterministic demo
+
+Run the reviewer-facing scripted demo:
+
+```bash
+.venv/bin/python eval/demo.py --scenario service-selector-mismatch --seed 11
+```
+
+## Repository entrypoints
+
+- benchmark core: [`tron/env.py`](tron/env.py)
+- OpenEnv server: [`tron_openenv/server/app.py`](tron_openenv/server/app.py)
+- root baseline: [`inference.py`](inference.py)
+- Docker entrypoint: [`scripts/container-entrypoint.sh`](scripts/container-entrypoint.sh)
+- environment contract: [`openenv.yaml`](openenv.yaml)

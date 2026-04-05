@@ -2,21 +2,34 @@ name: tron
 description: Live k3d benchmark for diagnosing and repairing realistic Kubernetes incidents under partial observability.
 type: benchmark
 entrypoints:
-  default_eval: python eval/run_eval.py --agent all
-  naive_eval: python eval/run_eval.py --agent naive
-  llm_eval: python eval/run_eval.py --agent llm
+  server: python -m tron_openenv.server.app
+  inference: python inference.py
   demo_eval: python eval/demo.py
 runtime:
-  reset_command: bash ./setup.sh
-  hard_reset_command: bash ./cleanup.sh && bash ./setup.sh
+  reset_command: POST /reset
+  step_command: POST /step
+  state_command: GET /state
   reset_strategy: in_cluster_restore
   live_cluster: k3d
-  ingress_url: http://127.0.0.1:8080
+  server_port: 7860
+  ingress_url: http://127.0.0.1:7860
+  dockerfile: Dockerfile
 agents:
-  - name: naive
-    description: Weak brute-force playbook with heavy destructive-action cost.
-  - name: llm
-    description: One-command-per-turn tool-using baseline with provider-swappable client adapters.
+  - name: openai-baseline
+    description: OpenAI-client baseline that emits one kubectl or curl command per turn.
+tasks:
+  - id: easy
+    scenario_id: service-selector-mismatch
+    difficulty: easy
+    description: Repair service-to-pod wiring so the frontend can reach redis.
+  - id: medium
+    scenario_id: bad-rollout-wrong-redis-host
+    difficulty: medium
+    description: Repair configuration drift and ensure the durable rollout picks it up.
+  - id: hard
+    scenario_id: networkpolicy-plus-secondary-drift
+    difficulty: hard
+    description: Repair a compound outage spanning policy and routing drift.
 observability:
   partial_observability: true
   blackbox_service_probe: true
@@ -30,4 +43,4 @@ scenario_sampling:
 evaluation:
   oracle: tron/oracle.py
   reward_model: service_score_delta_plus_action_cost
-  max_agent_steps: 12
+  max_agent_steps: 18

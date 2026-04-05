@@ -17,15 +17,18 @@ class OpenEnvContractTests(unittest.TestCase):
         self.assertEqual(payload["scenario_sampling"]["catalog"], "tron/scenario_catalog.py")
         self.assertEqual(payload["evaluation"]["oracle"], "tron/oracle.py")
         self.assertEqual(payload["runtime"]["reset_strategy"], "in_cluster_restore")
-        self.assertIn("demo_eval", payload["entrypoints"])
+        self.assertEqual(payload["entrypoints"]["server"], "python -m tron_openenv.server.app")
+        self.assertEqual(payload["entrypoints"]["inference"], "python inference.py")
+        self.assertEqual([task["id"] for task in payload["tasks"]], ["easy", "medium", "hard"])
 
     def test_openenv_referenced_files_exist(self) -> None:
         payload = yaml.safe_load((ROOT / "openenv.yaml").read_text(encoding="utf-8"))
 
         self.assertTrue((ROOT / payload["scenario_sampling"]["catalog"]).exists())
         self.assertTrue((ROOT / payload["evaluation"]["oracle"]).exists())
-        self.assertTrue((ROOT / "eval" / "run_eval.py").exists())
-        self.assertTrue((ROOT / "eval" / "demo.py").exists())
+        self.assertTrue((ROOT / "inference.py").exists())
+        self.assertTrue((ROOT / "tron_openenv" / "server" / "app.py").exists())
+        self.assertTrue((ROOT / "tron_openenv" / "client.py").exists())
 
     def test_openenv_local_tooling_is_present(self) -> None:
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")

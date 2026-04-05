@@ -16,6 +16,7 @@ compile:
 		baseline/llm_agent.py \
 		eval/demo.py \
 		eval/run_eval.py \
+		inference.py \
 		tron/__init__.py \
 		tron/action_analysis.py \
 		tron/checks.py \
@@ -38,7 +39,13 @@ compile:
 		tron/scenarios/network.py \
 		tron/scenarios/ingress.py \
 		tron/scenarios/deployment.py \
-		tron/scenarios/compound.py
+		tron/scenarios/compound.py \
+		tron_openenv/__init__.py \
+		tron_openenv/client.py \
+		tron_openenv/models.py \
+		tron_openenv/server/__init__.py \
+		tron_openenv/server/environment.py \
+		tron_openenv/server/app.py
 
 shellcheck:
 	bash -n setup.sh
@@ -53,7 +60,7 @@ ci: test
 
 docker-smoke:
 	docker build -t tron-ci .
-	docker run --rm tron-ci
+	docker run --rm tron-ci make ci
 
 openenv-install:
 	$(PYTHON) -m pip install "$(OPENENV_PACKAGE)"

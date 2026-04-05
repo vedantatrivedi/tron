@@ -15,10 +15,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV PYTHONPATH=/workspace
+ENV PYTHONPATH=/workspace \
+    PORT=7860
 
-# HF Spaces default port
 EXPOSE 7860
 
 ENTRYPOINT ["bash", "scripts/container-entrypoint.sh"]
-CMD ["python", "app.py"]
+CMD ["python3", "-m", "tron_openenv.server.app"]

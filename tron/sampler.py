@@ -118,6 +118,7 @@ def sample_scenario(
         template=replace(
             template,
             activation_checks=_render_checks(template.activation_checks, chosen_parameters),
+            cluster_clue_checks=_render_checks(template.cluster_clue_checks, chosen_parameters),
             repair_checks=_render_checks(template.repair_checks, chosen_parameters),
         ),
         seed=seed,

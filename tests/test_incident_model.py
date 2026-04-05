@@ -90,6 +90,16 @@ class IncidentModelTests(unittest.TestCase):
         self.assertEqual(first.rendered_inject_commands, second.rendered_inject_commands)
         self.assertIn("incident=bad-rollout-wrong-redis-host", first.recent_changes[0])
 
+    def test_sampling_renders_cluster_clue_checks(self) -> None:
+        instance = sample_scenario(load_catalog(), seed=11, scenario_id="bad-rollout-wrong-redis-host")
+
+        self.assertTrue(instance.template.cluster_clue_checks)
+        self.assertNotIn("{bad_host}", instance.template.cluster_clue_checks[0].success_substring)
+        self.assertEqual(
+            instance.template.cluster_clue_checks[0].success_substring,
+            instance.chosen_parameters["bad_host"],
+        )
+
     def test_sampling_without_id_still_returns_known_template(self) -> None:
         catalog = load_catalog()
         instance = sample_scenario(catalog, seed=3)

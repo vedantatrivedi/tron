@@ -36,7 +36,10 @@ class TronEnvironment:
         incident_engine: IncidentEngine | None = None,
     ) -> None:
         self.config = config
-        self.executor = executor or CommandExecutor(cwd=str(config.work_dir))
+        self.executor = executor or CommandExecutor(
+            cwd=str(config.work_dir),
+            kubeconfig_path=config.cluster.kubeconfig_path,
+        )
         self.catalog = catalog or load_catalog()
         self.incident_engine = incident_engine or IncidentEngine(self.executor)
         self.current_instance: ScenarioInstance | None = None
