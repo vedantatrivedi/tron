@@ -13,4 +13,5 @@ COPY . .
 
 ENV PYTHONPATH=/workspace
 
+ENTRYPOINT ["bash", "scripts/container-entrypoint.sh"]
 CMD ["make", "ci"]

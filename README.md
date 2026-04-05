@@ -284,6 +284,14 @@ Containerized local quality smoke:
 make docker-smoke
 ```
 
+The container entrypoint also supports remote-cluster secrets for Docker or Hugging Face style runtimes:
+
+- `KUBECONFIG_B64`: base64-encoded kubeconfig, decoded to `KUBECONFIG`
+- `INGRESS_HOST`: remote ingress hostname or IP
+- `INGRESS_PORT`: remote ingress port
+
+If those are present, [scripts/container-entrypoint.sh](/Users/vedantatrivedi/codex-projects/tron/scripts/container-entrypoint.sh) loads them before starting the container command.
+
 Install a pinned official OpenEnv CLI locally:
 
 ```bash

@@ -44,7 +44,10 @@ shellcheck:
 	bash -n setup.sh
 	bash -n cleanup.sh
 	bash -n app/test_client.sh
+	bash -n scripts/container-entrypoint.sh
+	bash -n scripts/install-k3s.sh
 	bash -n scripts/openenv_check.sh
+	bash -n scripts/provision-ec2.sh
 
 ci: test
 

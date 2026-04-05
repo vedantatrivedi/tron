@@ -33,6 +33,12 @@ Wait ~30 seconds after it prints the public IP before SSHing in.
 Optional flags:
 - `--region us-east-1` (default)
 - `--profile my-aws-profile` (if using named AWS profiles)
+- `--ami-id ami-...` (if you want to override the auto-discovered Ubuntu 24.04 AMI)
+
+Notes:
+- `provision-ec2.sh` now auto-discovers the latest Ubuntu 24.04 AMI for the region you pass
+- it also creates or reuses the `tron-k3s-sg` security group inside that region's default VPC
+- if your region has no default VPC, the script will fail clearly and you should either create one or extend the script to accept an explicit VPC/subnet
 
 ---
 
@@ -45,22 +51,15 @@ ssh -i ~/.ssh/tron-key.pem ubuntu@<PUBLIC_IP>
 Once inside, run:
 
 ```bash
-PUBLIC_IP=$(curl -sf http://169.254.169.254/latest/meta-data/public-ipv4)
-
-curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="v1.31.5+k3s1" sh -s - \
-    --tls-san "$PUBLIC_IP" \
-    --disable=traefik --disable=servicelb --disable=metrics-server \
-    --write-kubeconfig-mode=644
-
-# Wait for it to be ready
-timeout 60 bash -c 'until kubectl get nodes >/dev/null 2>&1; do sleep 2; done'
-
-# Print the kubeconfig (base64-encoded) and public IP for HF Space secrets
-echo "INGRESS_HOST=$PUBLIC_IP"
-echo "KUBECONFIG_B64=$(sed "s/127.0.0.1/$PUBLIC_IP/g" /etc/rancher/k3s/k3s.yaml | base64 -w 0)"
+bash scripts/install-k3s.sh --public-ip <PUBLIC_IP>
 ```
 
 Copy the printed values — you'll need them in Step 4.
+
+Notes:
+- `install-k3s.sh` accepts `--public-ip <PUBLIC_IP>` or `PUBLIC_IP=<PUBLIC_IP>` if you already know the public IP
+- if you omit it, the script will try EC2 metadata first, including IMDSv2
+- you can also override the version with `--k3s-version` or `K3S_VERSION=...`
 
 ---
 
