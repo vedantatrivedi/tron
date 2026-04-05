@@ -25,31 +25,28 @@ from tron_openenv.models import (
 
 ROOT = Path(__file__).resolve().parents[2]
 
+TASK_SCENARIO_IDS: dict[str, str] = {
+    "easy": "service-selector-mismatch",
+    "medium": "bad-rollout-wrong-redis-host",
+    "hard": "networkpolicy-plus-secondary-drift",
+}
+
 TASKS: dict[str, TronTask] = {
     "easy": TronTask(
         id="easy",
-        title="Repair a broken service selector",
         difficulty="easy",
-        scenario_id="service-selector-mismatch",
-        description="Restore service-to-pod routing so the frontend can reach redis again.",
         default_seed=11,
         max_agent_steps=12,
     ),
     "medium": TronTask(
         id="medium",
-        title="Repair a bad config rollout",
         difficulty="medium",
-        scenario_id="bad-rollout-wrong-redis-host",
-        description="Fix configuration drift and ensure the serving workload picks up the durable repair.",
         default_seed=13,
         max_agent_steps=15,
     ),
     "hard": TronTask(
         id="hard",
-        title="Repair a compound policy and wiring incident",
         difficulty="hard",
-        scenario_id="networkpolicy-plus-secondary-drift",
-        description="Diagnose and repair multiple independent faults before the step budget runs out.",
         default_seed=17,
         max_agent_steps=18,
     ),
@@ -106,7 +103,6 @@ class TronOpenEnvService:
             raise RuntimeError("task state is not initialized")
         return TronObservation(
             task_id=self.current_task.id,
-            scenario_id=self.env.current_instance.template.scenario_id,
             step_count=observation.step_number,
             incident_brief=observation.incident_brief,
             last_action=observation.last_action,
@@ -127,7 +123,6 @@ class TronOpenEnvService:
             recent_change_hint=observation.recent_change_hint,
             done=done,
             metadata={
-                "scenario_title": self.env.current_instance.template.title,
                 "difficulty": self.current_task.difficulty,
             },
         )
@@ -138,7 +133,7 @@ class TronOpenEnvService:
             seed = request.seed if request.seed is not None else task.default_seed
             self.env.config.max_agent_steps = task.max_agent_steps
             observation = self.env.reset(
-                scenario_id=task.scenario_id,
+                scenario_id=TASK_SCENARIO_IDS[task.id],
                 seed=seed,
                 hard_reset=request.hard_reset,
             )
@@ -202,14 +197,12 @@ class TronOpenEnvService:
 
     def state(self) -> TronState:
         with self.lock:
-            scenario_id = self.env.current_instance.template.scenario_id if self.env.current_instance else None
             service_score = (
                 self.env.current_observation.service_probe.score if self.env.current_observation else None
             )
             return TronState(
                 episode_id=self.episode_id,
                 task=self.current_task,
-                scenario_id=scenario_id,
                 seed=self.current_seed,
                 step_count=self.env.step_number,
                 cumulative_reward=self.cumulative_reward,

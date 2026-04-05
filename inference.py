@@ -176,7 +176,6 @@ def run_task(
         "START",
         {
             "task_id": task.id,
-            "scenario_id": task.scenario_id,
             "seed": seed,
             "difficulty": task.difficulty,
             "max_agent_steps": task.max_agent_steps,
@@ -217,7 +216,6 @@ def run_task(
     final_state: TronState = env_client.state()
     final_payload = {
         "task_id": task.id,
-        "scenario_id": task.scenario_id,
         "seed": seed,
         "steps": final_state.step_count,
         "cumulative_reward": final_state.cumulative_reward,

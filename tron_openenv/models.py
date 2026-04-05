@@ -30,10 +30,7 @@ class TronTask(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str
-    title: str
     difficulty: str
-    scenario_id: str
-    description: str
     default_seed: int
     max_agent_steps: int
 
@@ -54,7 +51,6 @@ class TronObservation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     task_id: str
-    scenario_id: str
     step_count: int = Field(ge=0)
     incident_brief: str
     last_action: Optional[str] = None
@@ -95,7 +91,6 @@ class TronState(BaseModel):
 
     episode_id: Optional[str] = None
     task: Optional[TronTask] = None
-    scenario_id: Optional[str] = None
     seed: Optional[int] = None
     step_count: int = Field(ge=0)
     cumulative_reward: float

@@ -176,7 +176,6 @@ class OpenEnvServerTests(unittest.TestCase):
         service = TronOpenEnvService(env=FakeCoreEnv())
         task_ids = [task.id for task in service.list_tasks()]
         self.assertEqual(task_ids, ["easy", "medium", "hard"])
-        self.assertEqual(TASKS["hard"].scenario_id, "networkpolicy-plus-secondary-drift")
 
     def test_http_metadata_endpoints_expose_tasks(self) -> None:
         app = create_app(TronOpenEnvService(env=FakeCoreEnv()))
@@ -206,7 +205,7 @@ class OpenEnvServerTests(unittest.TestCase):
 
         reset_response = client.post("/reset", json={"task_id": "easy", "seed": 11})
         self.assertEqual(reset_response.status_code, 200)
-        self.assertEqual(reset_response.json()["task"]["scenario_id"], "service-selector-mismatch")
+        self.assertEqual(reset_response.json()["task"]["id"], "easy")
 
         step_response = client.post("/step", json=TronAction(command="kubectl -n tron get service redis -o yaml").model_dump())
         self.assertEqual(step_response.status_code, 200)
