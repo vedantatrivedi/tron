@@ -54,6 +54,8 @@ class IncidentModelTests(unittest.TestCase):
                 "readiness-probe-too-permissive",
                 "networkpolicy-blocks-nginx-to-redis",
                 "ingress-path-rewrite-bug",
+                "bridge-crashloop-bad-command",
+                "deployment-scaled-to-zero",
                 "wrong-redis-host-plus-cpu-throttle",
                 "networkpolicy-plus-secondary-drift",
             },
@@ -102,9 +104,51 @@ class IncidentModelTests(unittest.TestCase):
         checks = engine.verify_activation(instance)
         engine.restore(instance)
 
-        self.assertEqual(len(executor.shell_commands), 7)
+        self.assertEqual(len(executor.shell_commands), 9)
         self.assertEqual(len(checks), 2)
         self.assertTrue(all(check.ok for check in checks))
+
+    def test_hard_scenario_renders_distractor_mutation(self) -> None:
+        instance = sample_scenario(
+            load_catalog(),
+            seed=5,
+            scenario_id="networkpolicy-plus-secondary-drift",
+        )
+
+        self.assertTrue(instance.rendered_distractor_commands)
+        self.assertIn("annotate ingress tron-ingress", instance.rendered_distractor_commands[0])
+        self.assertIn("Unrelated change: ingress metadata was updated", instance.recent_changes[-1])
+
+    def test_readiness_probe_scenario_uses_json_patch_to_replace_handler(self) -> None:
+        template = get_scenario(load_catalog(), "readiness-probe-too-permissive")
+        command = template.inject_commands[0]
+
+        self.assertIn("patch deployment nginx --type=json", command)
+        self.assertIn("\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/0/readinessProbe/httpGet\"", command)
+        self.assertIn("\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/readinessProbe/exec\"", command)
+        self.assertFalse(template.requires_service_degradation)
+
+    def test_resource_scenarios_enable_runtime_pressure_and_restore_config(self) -> None:
+        cpu = get_scenario(load_catalog(), "cpu-limits-too-low")
+        memory = get_scenario(load_catalog(), "memory-limits-too-low")
+
+        self.assertIn("BRIDGE_CPU_BURN_MS", cpu.inject_commands[0])
+        self.assertIn("rollout restart deployment/nginx", cpu.inject_commands[0])
+        self.assertIn("kubectl apply -f manifests/configmap.yaml", cpu.restore_commands)
+
+        self.assertIn("BRIDGE_MEMORY_BURST_MB", memory.inject_commands[0])
+        self.assertIn("rollout restart deployment/nginx", memory.inject_commands[0])
+        self.assertIn("kubectl apply -f manifests/configmap.yaml", memory.restore_commands)
+
+    def test_new_deployment_incidents_have_reviewable_repairs(self) -> None:
+        crashloop = get_scenario(load_catalog(), "bridge-crashloop-bad-command")
+        scaled = get_scenario(load_catalog(), "deployment-scaled-to-zero")
+
+        self.assertIn("containers/1/command/1", crashloop.inject_commands[0])
+        self.assertIn("/app/bridge.py", crashloop.repair_checks[0].success_substring)
+
+        self.assertIn("\"replicas\":0", scaled.inject_commands[0])
+        self.assertEqual("1", scaled.repair_checks[0].success_substring)
 
     def test_inject_by_id_runs_activation_checks(self) -> None:
         executor = FakeExecutor()

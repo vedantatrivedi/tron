@@ -7,6 +7,8 @@ data:
   REDIS_HOST: redis
   REDIS_PORT: "6379"
   REDIS_KEY: tron:data
+  BRIDGE_CPU_BURN_MS: "0"
+  BRIDGE_MEMORY_BURST_MB: "0"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -61,12 +63,15 @@ data:
     import json
     import os
     import socket
+    import time
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import parse_qs, urlparse
 
     REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
     REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
     REDIS_KEY = os.environ.get("REDIS_KEY", "tron:data")
+    BRIDGE_CPU_BURN_MS = int(os.environ.get("BRIDGE_CPU_BURN_MS", "0"))
+    BRIDGE_MEMORY_BURST_MB = int(os.environ.get("BRIDGE_MEMORY_BURST_MB", "0"))
 
 
     def encode(parts):
@@ -116,6 +121,20 @@ data:
             return read_resp(sock)
 
 
+    def induce_request_pressure():
+        pressure = None
+        if BRIDGE_MEMORY_BURST_MB > 0:
+            pressure = bytearray(BRIDGE_MEMORY_BURST_MB * 1024 * 1024)
+            for offset in range(0, len(pressure), 4096):
+                pressure[offset] = 1
+        if BRIDGE_CPU_BURN_MS > 0:
+            deadline = time.perf_counter() + (BRIDGE_CPU_BURN_MS / 1000.0)
+            spin = 0
+            while time.perf_counter() < deadline:
+                spin = (spin + 1) % 1000003
+        return pressure
+
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "tron-redis-bridge/0.1"
 
@@ -134,6 +153,7 @@ data:
             parsed = urlparse(self.path)
             try:
                 if parsed.path == "/data":
+                    pressure = induce_request_pressure()
                     value = redis_command("GET", REDIS_KEY)
                     counter = redis_command("INCR", f"{REDIS_KEY}:requests")
                     self.write_json(
@@ -144,6 +164,7 @@ data:
                             "requests": int(str(counter).lstrip(":")),
                         },
                     )
+                    del pressure
                     return
 
                 if parsed.path == "/read":

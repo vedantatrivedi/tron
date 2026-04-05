@@ -42,6 +42,14 @@ class RuntimeScaffoldTests(unittest.TestCase):
         self.assertIn("containerPort: 9000", nginx_manifest)
         self.assertIn("ingressClassName: traefik", ingress_manifest)
 
+    def test_bridge_config_supports_resource_pressure_knobs(self) -> None:
+        configmap = (ROOT / "manifests" / "configmap.yaml").read_text(encoding="utf-8")
+        self.assertIn("BRIDGE_CPU_BURN_MS", configmap)
+        self.assertIn("BRIDGE_MEMORY_BURST_MB", configmap)
+        self.assertIn("def induce_request_pressure()", configmap)
+        self.assertIn("BRIDGE_CPU_BURN_MS = int", configmap)
+        self.assertIn("BRIDGE_MEMORY_BURST_MB = int", configmap)
+
     def test_scenarios_target_local_blackbox_endpoint(self) -> None:
         catalog = load_catalog()
         for scenario in catalog:

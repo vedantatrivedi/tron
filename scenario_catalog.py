@@ -274,15 +274,19 @@ def load_catalog() -> list[ScenarioTemplate]:
             difficulty="medium",
             parameters={
                 "cpu_limit": ["5m", "10m", "15m"],
+                "cpu_burn_ms": ["400", "500", "650"],
                 "traffic_profile": ["morning spike", "cache-warm burst", "load-test replay"],
                 "recent_change_timing": ["6 minutes ago", "17 minutes ago"],
             },
             inject_commands=[
                 (
-                    "kubectl -n tron patch deployment nginx --type merge -p "
-                    "'{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"redis-bridge\","
-                    "\"resources\":{\"requests\":{\"cpu\":\"25m\",\"memory\":\"64Mi\"},"
-                    "\"limits\":{\"cpu\":\"{cpu_limit}\",\"memory\":\"64Mi\"}}}]}}}}'"
+                    "kubectl -n tron patch configmap app-config --type merge -p "
+                    "'{\"data\":{\"BRIDGE_CPU_BURN_MS\":\"{cpu_burn_ms}\"}}' && "
+                    "kubectl -n tron set resources deployment/nginx -c redis-bridge "
+                    "--requests=cpu={cpu_limit},memory=64Mi "
+                    "--limits=cpu={cpu_limit},memory=64Mi && "
+                    "kubectl -n tron rollout restart deployment/nginx && "
+                    "kubectl -n tron rollout status deployment/nginx --timeout=120s"
                 ),
             ],
             activation_checks=[
@@ -301,7 +305,7 @@ def load_catalog() -> list[ScenarioTemplate]:
                     "{cpu_limit}",
                 ),
             ],
-            restore_commands=[BASE_NGINX_RESTORE],
+            restore_commands=[BASE_CONFIGMAP_RESTORE, BASE_NGINX_RESTORE],
             repair_checks=[
                 _equals(
                     "cpu-limit-restored",
@@ -345,15 +349,19 @@ def load_catalog() -> list[ScenarioTemplate]:
             difficulty="medium",
             parameters={
                 "memory_limit": ["24Mi", "32Mi", "40Mi"],
+                "memory_burst_mb": ["48", "56", "64"],
                 "traffic_profile": ["write-heavy burst", "mixed read/write spike"],
                 "recent_change_timing": ["8 minutes ago", "21 minutes ago"],
             },
             inject_commands=[
                 (
-                    "kubectl -n tron patch deployment nginx --type merge -p "
-                    "'{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"redis-bridge\","
-                    "\"resources\":{\"requests\":{\"cpu\":\"25m\",\"memory\":\"32Mi\"},"
-                    "\"limits\":{\"cpu\":\"100m\",\"memory\":\"{memory_limit}\"}}}]}}}}'"
+                    "kubectl -n tron patch configmap app-config --type merge -p "
+                    "'{\"data\":{\"BRIDGE_MEMORY_BURST_MB\":\"{memory_burst_mb}\"}}' && "
+                    "kubectl -n tron set resources deployment/nginx -c redis-bridge "
+                    "--requests=cpu=25m,memory={memory_limit} "
+                    "--limits=cpu=100m,memory={memory_limit} && "
+                    "kubectl -n tron rollout restart deployment/nginx && "
+                    "kubectl -n tron rollout status deployment/nginx --timeout=120s"
                 ),
             ],
             activation_checks=[
@@ -372,7 +380,7 @@ def load_catalog() -> list[ScenarioTemplate]:
                     "{memory_limit}",
                 ),
             ],
-            restore_commands=[BASE_NGINX_RESTORE],
+            restore_commands=[BASE_CONFIGMAP_RESTORE, BASE_NGINX_RESTORE],
             repair_checks=[
                 _equals(
                     "memory-limit-restored",
@@ -419,10 +427,15 @@ def load_catalog() -> list[ScenarioTemplate]:
             },
             inject_commands=[
                 (
-                    "kubectl -n tron patch deployment nginx --type merge -p "
-                    "'{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"nginx\","
-                    "\"readinessProbe\":{\"exec\":{\"command\":[\"sh\",\"-c\",\"exit 0\"]},"
-                    "\"initialDelaySeconds\":1,\"periodSeconds\":5}}]}}}}'"
+                    "kubectl -n tron patch deployment nginx --type=json -p "
+                    "'["
+                    "{\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/0/readinessProbe/httpGet\"},"
+                    "{\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/readinessProbe/exec\","
+                    "\"value\":{\"command\":[\"sh\",\"-c\",\"exit 0\"]}},"
+                    "{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/readinessProbe/initialDelaySeconds\",\"value\":1},"
+                    "{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/readinessProbe/periodSeconds\",\"value\":5}"
+                    "]' && "
+                    "kubectl -n tron rollout status deployment/nginx --timeout=120s"
                 ),
             ],
             activation_checks=[
@@ -458,6 +471,7 @@ def load_catalog() -> list[ScenarioTemplate]:
                     "/health",
                 ),
             ],
+            requires_service_degradation=False,
             recent_change_templates=[
                 "Recent change: rollout safety settings were edited {recent_change_timing}.",
                 "Rollout note: the new deployment is {rollout_state}.",
@@ -639,10 +653,10 @@ EOF""",
                 "kubectl -n tron patch configmap app-config --type merge -p '{\"data\":{\"REDIS_HOST\":\"{bad_host}\"}}'",
                 RESTART_NGINX,
                 (
-                    "kubectl -n tron patch deployment nginx --type merge -p "
-                    "'{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"redis-bridge\","
-                    "\"resources\":{\"requests\":{\"cpu\":\"25m\",\"memory\":\"64Mi\"},"
-                    "\"limits\":{\"cpu\":\"{cpu_limit}\",\"memory\":\"64Mi\"}}}]}}}}'"
+                    "kubectl -n tron set resources deployment/nginx -c redis-bridge "
+                    "--requests=cpu={cpu_limit},memory=64Mi "
+                    "--limits=cpu={cpu_limit},memory=64Mi && "
+                    "kubectl -n tron rollout status deployment/nginx --timeout=120s"
                 ),
             ],
             activation_checks=[
@@ -727,6 +741,7 @@ EOF""",
                 "policy_name": ["block-redis-egress", "deny-nginx-egress"],
                 "recent_change_timing": ["15 minutes ago", "28 minutes ago"],
                 "secondary_variant": ["stale config", "selector mismatch"],
+                "distractor_note": ["review-window-a", "review-window-b", "audit-followup"],
                 "secondary_inject_command": [
                     "kubectl -n tron patch configmap app-config --type merge -p '{\"data\":{\"REDIS_HOST\":\"redis-shadow\"}}' && kubectl -n tron rollout restart deployment/nginx && kubectl -n tron patch configmap app-config --type merge -p '{\"data\":{\"REDIS_HOST\":\"redis\"}}'",
                     "kubectl -n tron patch service redis --type merge -p '{\"spec\":{\"selector\":{\"app\":\"redis-shadow\"}}}'",
@@ -759,6 +774,12 @@ spec:
 EOF""",
                 "{secondary_inject_command}",
             ],
+            distractor_commands=[
+                (
+                    "kubectl -n tron annotate ingress tron-ingress "
+                    "tron.dev/review-note={distractor_note} --overwrite"
+                ),
+            ],
             activation_checks=[
                 _contains(
                     "policy-present",
@@ -787,6 +808,9 @@ EOF""",
                 BASE_NETWORKPOLICY_RESTORE,
                 RESTART_NGINX,
             ],
+            distractor_restore_commands=[
+                "kubectl -n tron annotate ingress tron-ingress tron.dev/review-note- --overwrite",
+            ],
             repair_checks=[
                 _equals(
                     "policy-removed",
@@ -812,6 +836,142 @@ EOF""",
             recent_change_templates=[
                 "Recent change: the policy regression landed {recent_change_timing}.",
                 "Debug hint: the second issue lines up with {secondary_variant}.",
+                "Unrelated change: ingress metadata was updated for {distractor_note}.",
+            ],
+        ),
+        ScenarioTemplate(
+            id="bridge-crashloop-bad-command",
+            kind=ScenarioKind.DEPLOYMENT,
+            title="Bad rollout changes the bridge command and causes a sidecar crash loop",
+            trigger_context=(
+                "A deployment edit {recent_change_timing} changed the redis-bridge startup command "
+                "during a rollout."
+            ),
+            user_visible_symptom=(
+                "/health stays green, but /data fails because the redis-bridge sidecar now crashes "
+                "instead of serving requests."
+            ),
+            hidden_faults=[
+                "The redis-bridge container command now points at a missing script.",
+            ],
+            distractors=[
+                "The nginx frontend container still starts and answers /health.",
+                "ConfigMaps, services, and ingress objects remain unchanged.",
+            ],
+            difficulty="medium",
+            parameters={
+                "recent_change_timing": ["9 minutes ago", "22 minutes ago"],
+                "bad_script_path": ["/app/missing.py", "/app/bridge-moved.py"],
+            },
+            inject_commands=[
+                (
+                    "kubectl -n tron patch deployment nginx --type=json -p "
+                    "'["
+                    "{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/1/command/1\","
+                    "\"value\":\"{bad_script_path}\"}"
+                    "]' && "
+                    "kubectl -n tron rollout restart deployment/nginx && "
+                    "kubectl -n tron rollout status deployment/nginx --timeout=120s"
+                ),
+            ],
+            activation_checks=[
+                _equals(
+                    "bridge-command-drifted",
+                    [
+                        "kubectl",
+                        "-n",
+                        "tron",
+                        "get",
+                        "deployment",
+                        "nginx",
+                        "-o",
+                        "jsonpath={.spec.template.spec.containers[1].command[1]}",
+                    ],
+                    "{bad_script_path}",
+                ),
+            ],
+            restore_commands=[BASE_NGINX_RESTORE],
+            repair_checks=[
+                _equals(
+                    "bridge-command-restored",
+                    [
+                        "kubectl",
+                        "-n",
+                        "tron",
+                        "get",
+                        "deployment",
+                        "nginx",
+                        "-o",
+                        "jsonpath={.spec.template.spec.containers[1].command[1]}",
+                    ],
+                    "/app/bridge.py",
+                ),
+            ],
+            recent_change_templates=[
+                "Recent change: redis-bridge startup command was edited {recent_change_timing}.",
+            ],
+        ),
+        ScenarioTemplate(
+            id="deployment-scaled-to-zero",
+            kind=ScenarioKind.DEPLOYMENT,
+            title="Deployment was accidentally scaled to zero during a cleanup",
+            trigger_context=(
+                "A cleanup change {recent_change_timing} scaled the frontend deployment down to zero "
+                "replicas."
+            ),
+            user_visible_symptom=(
+                "The service becomes unreachable because there are no nginx pods left serving traffic."
+            ),
+            hidden_faults=[
+                "The nginx deployment now has replicas=0.",
+            ],
+            distractors=[
+                "Ingress and services still exist and point at nginx.",
+                "Redis is still healthy in-cluster.",
+            ],
+            difficulty="easy",
+            parameters={
+                "recent_change_timing": ["5 minutes ago", "19 minutes ago"],
+                "cleanup_window": ["post-release cleanup", "overnight capacity trim"],
+            },
+            inject_commands=[
+                "kubectl -n tron patch deployment nginx --type merge -p '{\"spec\":{\"replicas\":0}}'",
+            ],
+            activation_checks=[
+                _equals(
+                    "nginx-scaled-to-zero",
+                    [
+                        "kubectl",
+                        "-n",
+                        "tron",
+                        "get",
+                        "deployment",
+                        "nginx",
+                        "-o",
+                        "jsonpath={.spec.replicas}",
+                    ],
+                    "0",
+                ),
+            ],
+            restore_commands=[BASE_NGINX_RESTORE],
+            repair_checks=[
+                _equals(
+                    "nginx-replicas-restored",
+                    [
+                        "kubectl",
+                        "-n",
+                        "tron",
+                        "get",
+                        "deployment",
+                        "nginx",
+                        "-o",
+                        "jsonpath={.spec.replicas}",
+                    ],
+                    "1",
+                ),
+            ],
+            recent_change_templates=[
+                "Recent change: nginx replicas were reduced during {cleanup_window} {recent_change_timing}.",
             ],
         ),
     ]
