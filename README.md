@@ -333,6 +333,27 @@ export HF_TOKEN=$OPENAI_API_KEY
 
 ---
 
+## Live Cluster (Hugging Face Space)
+
+The deployed Hugging Face Space connects to a live Kubernetes cluster running on AWS EC2, managed by the benchmark authors. **You do not need to provision or configure a cluster to use the Space** — it is pre-connected and ready to accept `POST /reset` calls.
+
+If you are running the Docker image yourself (outside the Space), supply cluster credentials via the `KUBECONFIG_B64` environment variable:
+
+```bash
+export KUBECONFIG_B64="$(base64 -w0 ~/.kube/config)"
+docker run --rm \
+  -e KUBECONFIG_B64="$KUBECONFIG_B64" \
+  -e API_BASE_URL=https://api.openai.com/v1 \
+  -e MODEL_NAME=gpt-5-mini \
+  -e HF_TOKEN=$OPENAI_API_KEY \
+  -p 7860:7860 \
+  tron
+```
+
+Without `KUBECONFIG_B64`, the server starts and `/health` responds normally, but `POST /reset` returns HTTP 503 with a descriptive error until credentials are provided.
+
+---
+
 ## Local Setup
 
 Prerequisites:

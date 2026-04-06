@@ -13,16 +13,12 @@ class InferenceHelpersTests(unittest.TestCase):
     def test_build_prompt_includes_task_and_observation(self) -> None:
         task = TronTask(
             id="easy",
-            title="Selector repair",
             difficulty="easy",
-            scenario_id="service-selector-mismatch",
-            description="repair selector",
             default_seed=11,
             max_agent_steps=12,
         )
         observation = TronObservation(
             task_id="easy",
-            scenario_id="service-selector-mismatch",
             step_count=1,
             incident_brief="service degraded",
             last_action="kubectl -n tron get pods",

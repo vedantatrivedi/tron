@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 
 from tron_openenv.models import ResetRequest, ResetResponse, StepResponse, TronAction, TronState, TronTask
-from tron_openenv.server.environment import TronOpenEnvService
+from tron_openenv.server.environment import ClusterNotAvailableError, TronOpenEnvService
 
 
 def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
@@ -49,6 +49,8 @@ def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
     def reset(request: ResetRequest) -> ResetResponse:
         try:
             return runtime.reset(request)
+        except ClusterNotAvailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except RuntimeError as exc:

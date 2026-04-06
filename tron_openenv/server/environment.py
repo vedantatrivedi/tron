@@ -10,6 +10,11 @@ from uuid import uuid4
 
 logger = logging.getLogger("tron.server")
 
+
+class ClusterNotAvailableError(RuntimeError):
+    """Raised when the Kubernetes cluster is not reachable."""
+
+
 from tron.env import TronEnvironment
 from tron.models import BenchmarkConfig, ClusterConfig, ObservationBundle, StepTransition
 from tron_openenv.models import (
@@ -130,8 +135,31 @@ class TronOpenEnvService:
             },
         )
 
+    def _assert_cluster_reachable(self) -> None:
+        executor = getattr(self.env, "executor", None)
+        if executor is None:
+            return
+        try:
+            result = executor.run_argv(
+                ["kubectl", "cluster-info", "--request-timeout=5s"],
+                timeout=8.0,
+            )
+        except FileNotFoundError:
+            raise ClusterNotAvailableError(
+                "kubectl not found in PATH. The server is not connected to a Kubernetes cluster. "
+                "Provide cluster credentials via the KUBECONFIG_B64 environment variable."
+            )
+        if result.return_code != 0:
+            detail = (result.stderr or result.stdout or "no output").strip().splitlines()[0][:200]
+            raise ClusterNotAvailableError(
+                f"Kubernetes cluster is not reachable. "
+                f"Provide cluster credentials via the KUBECONFIG_B64 environment variable. "
+                f"kubectl error: {detail}"
+            )
+
     def reset(self, request: ResetRequest) -> ResetResponse:
         with self.lock:
+            self._assert_cluster_reachable()
             task = self._require_task(request.task_id)
             seed = request.seed if request.seed is not None else task.default_seed
             scenario_id = TASK_SCENARIO_IDS[task.id]
