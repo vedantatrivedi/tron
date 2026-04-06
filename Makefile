@@ -57,7 +57,7 @@ shellcheck:
 	bash -n scripts/provision-ec2.sh
 	bash -n scripts/space_smoke.sh
 
-ci: test
+ci: test openenv-check
 
 docker-smoke:
 	docker build -t tron-ci .
