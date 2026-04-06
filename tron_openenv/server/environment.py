@@ -136,10 +136,16 @@ class TronOpenEnvService:
         )
 
     def _assert_cluster_reachable(self) -> None:
-        result = self.env.executor.run_argv(
-            ["kubectl", "cluster-info", "--request-timeout=5s"],
-            timeout=8.0,
-        )
+        try:
+            result = self.env.executor.run_argv(
+                ["kubectl", "cluster-info", "--request-timeout=5s"],
+                timeout=8.0,
+            )
+        except FileNotFoundError:
+            raise ClusterNotAvailableError(
+                "kubectl not found in PATH. The server is not connected to a Kubernetes cluster. "
+                "Provide cluster credentials via the KUBECONFIG_B64 environment variable."
+            )
         if result.return_code != 0:
             detail = (result.stderr or result.stdout or "no output").strip().splitlines()[0][:200]
             raise ClusterNotAvailableError(
