@@ -39,6 +39,15 @@ class OpenEnvContractTests(unittest.TestCase):
         self.assertTrue((ROOT / "scripts" / "openenv_check.sh").exists())
         self.assertTrue((ROOT / "scripts" / "space_smoke.sh").exists())
 
+    def test_ci_runs_openenv_validation(self) -> None:
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+        self.assertIn("ci: test openenv-check", makefile)
+        self.assertIn("- name: Install OpenEnv CLI", workflow)
+        self.assertIn("run: make openenv-install", workflow)
+        self.assertIn("run: make ci", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
