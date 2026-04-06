@@ -136,8 +136,11 @@ class TronOpenEnvService:
         )
 
     def _assert_cluster_reachable(self) -> None:
+        executor = getattr(self.env, "executor", None)
+        if executor is None:
+            return
         try:
-            result = self.env.executor.run_argv(
+            result = executor.run_argv(
                 ["kubectl", "cluster-info", "--request-timeout=5s"],
                 timeout=8.0,
             )
