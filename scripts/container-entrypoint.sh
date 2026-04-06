@@ -65,12 +65,23 @@ auto_detect_ingress() {
     fi
 }
 
+verify_cluster_connectivity() {
+    log "Verifying cluster connectivity..."
+    if ! kubectl cluster-info --request-timeout=5s >/dev/null 2>&1; then
+        die "Kubernetes cluster is not reachable after loading KUBECONFIG_B64. Check that the credentials are valid and the cluster is running."
+    fi
+    log "Cluster connectivity verified."
+}
+
 main() {
     maybe_write_kubeconfig
     report_runtime_config
 
     if [[ -n "${KUBECONFIG_B64:-}" ]]; then
         auto_detect_ingress
+        verify_cluster_connectivity
+    else
+        log "WARNING: KUBECONFIG_B64 is not set. POST /reset will return HTTP 503 until cluster credentials are provided."
     fi
 
     if [[ "$#" -eq 0 ]]; then
