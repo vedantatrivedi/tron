@@ -70,6 +70,7 @@ metadata:
   name: nginx
   namespace: tron
 spec:
+  type: LoadBalancer
   selector:
     app: nginx
   ports:

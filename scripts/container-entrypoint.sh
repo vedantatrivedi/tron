@@ -35,28 +35,34 @@ report_runtime_config() {
     fi
 }
 
-# Port-forward the tron nginx service to localhost so the service probe
-# (which hits 127.0.0.1:INGRESS_PORT) can reach it from inside this container.
-# Runs as a self-restarting background loop.
-start_ingress_port_forward() {
-    local port="${INGRESS_PORT:-8080}"
-    local namespace="${TRON_NAMESPACE:-tron}"
-    local svc="${INGRESS_SVC:-nginx}"
+# Detect the k3s node's external IP and point the service probe at it.
+# The nginx service is type LoadBalancer; k3s ServiceLB exposes it on the
+# node's IP:80. We prefer ExternalIP (cloud VPS public IP) over InternalIP.
+auto_detect_ingress() {
+    if [[ -n "${INGRESS_URL_HOST:-}" ]]; then
+        log "Using configured ingress: ${INGRESS_URL_HOST}:${INGRESS_PORT:-80}"
+        return 0
+    fi
 
-    log "Starting port-forward: svc/${svc} -n ${namespace} -> 127.0.0.1:${port}"
+    local node_ip=""
 
-    # Run in a subshell with set +e so failures don't exit the loop.
-    # The nginx service is created during reset, not at startup, so early
-    # attempts are expected to fail until the baseline is restored.
-    (
-        set +e
-        while true; do
-            kubectl port-forward \
-                -n "${namespace}" "svc/${svc}" "${port}:80" \
-                --address 127.0.0.1 >/dev/null 2>&1
-            sleep 1
-        done
-    ) &
+    node_ip=$(kubectl get nodes \
+        -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' \
+        2>/dev/null || true)
+
+    if [[ -z "$node_ip" ]]; then
+        node_ip=$(kubectl get nodes \
+            -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
+            2>/dev/null || true)
+    fi
+
+    if [[ -n "$node_ip" ]]; then
+        export INGRESS_URL_HOST="$node_ip"
+        export INGRESS_PORT="${INGRESS_PORT:-80}"
+        log "Ingress target: ${INGRESS_URL_HOST}:${INGRESS_PORT}"
+    else
+        log "WARNING: could not detect node IP; set INGRESS_URL_HOST and INGRESS_PORT manually"
+    fi
 }
 
 main() {
@@ -64,7 +70,7 @@ main() {
     report_runtime_config
 
     if [[ -n "${KUBECONFIG_B64:-}" ]]; then
-        start_ingress_port_forward
+        auto_detect_ingress
     fi
 
     if [[ "$#" -eq 0 ]]; then
