@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import itertools
 import json
 import unittest
 from unittest.mock import patch
@@ -414,10 +415,13 @@ class EnvironmentLoopTests(unittest.TestCase):
     @patch("tron.env.probe_service")
     @patch("tron.env.time.sleep", return_value=None)
     def test_reset_fast_profile_shortens_transient_wait_window(self, _sleep_mock, probe_service_mock) -> None:
-        probe_service_mock.side_effect = [
-            ServiceProbe("unreachable", "unreachable", None, None, 0.0),
-            ServiceProbe("unreachable", "unreachable", None, None, 0.0),
-        ]
+        probe_service_mock.side_effect = itertools.chain(
+            [
+                ServiceProbe("unreachable", "unreachable", None, None, 0.0),
+                ServiceProbe("unreachable", "unreachable", None, None, 0.0),
+            ],
+            itertools.repeat(ServiceProbe("unreachable", "unreachable", None, None, 0.0)),
+        )
         env = TronEnvironment(
             BenchmarkConfig(
                 max_agent_steps=4,
@@ -429,7 +433,8 @@ class EnvironmentLoopTests(unittest.TestCase):
             incident_engine=StubIncidentEngine(),
         )
 
-        with patch("tron.env.time.time", side_effect=[0.0, 0.0, 0.0, 0.11, 0.11, 0.11]):
+        mock_times = itertools.chain([0.0, 0.0, 0.0], (0.1 * value for value in itertools.count(1)))
+        with patch("tron.env.time.time", side_effect=mock_times):
             observation = env.reset(scenario_id="deployment-scaled-to-zero", seed=17)
 
         self.assertEqual(observation.service_probe.health_status, "unreachable")
