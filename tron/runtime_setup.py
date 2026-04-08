@@ -29,11 +29,14 @@ def build_baseline_restore_commands(namespace: str, rollout_timeout_seconds: int
     rollout_timeout_seconds = max(int(rollout_timeout_seconds), 1)
     return [
         "kubectl apply --validate=false -f manifests/namespace.yaml",
-        f"kubectl -n {namespace} apply --validate=false -f manifests/configmap.yaml",
-        f"kubectl -n {namespace} apply --validate=false -f manifests/redis.yaml",
-        f"kubectl -n {namespace} apply --validate=false -f manifests/nginx.yaml",
-        f"kubectl -n {namespace} apply --validate=false -f manifests/ingress.yaml",
-        f"kubectl -n {namespace} apply --validate=false -f manifests/networkpolicy-base.yaml",
+        (
+            f"kubectl -n {namespace} apply --validate=false "
+            "-f manifests/configmap.yaml "
+            "-f manifests/redis.yaml "
+            "-f manifests/nginx.yaml "
+            "-f manifests/ingress.yaml "
+            "-f manifests/networkpolicy-base.yaml"
+        ),
         f"kubectl -n {namespace} set env deployment/nginx REDIS_HOST-",
         f"kubectl -n {namespace} rollout status deployment/redis --timeout={rollout_timeout_seconds}s",
         f"kubectl -n {namespace} rollout status deployment/nginx --timeout={rollout_timeout_seconds}s",

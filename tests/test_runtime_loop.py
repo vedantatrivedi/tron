@@ -37,11 +37,14 @@ class StubExecutor:
             "CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./cleanup.sh": "",
             "CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./setup.sh": "",
             "kubectl apply --validate=false -f manifests/namespace.yaml": "",
-            "kubectl -n tron apply --validate=false -f manifests/configmap.yaml": "",
-            "kubectl -n tron apply --validate=false -f manifests/redis.yaml": "",
-            "kubectl -n tron apply --validate=false -f manifests/nginx.yaml": "",
-            "kubectl -n tron apply --validate=false -f manifests/ingress.yaml": "",
-            "kubectl -n tron apply --validate=false -f manifests/networkpolicy-base.yaml": "",
+            (
+                "kubectl -n tron apply --validate=false "
+                "-f manifests/configmap.yaml "
+                "-f manifests/redis.yaml "
+                "-f manifests/nginx.yaml "
+                "-f manifests/ingress.yaml "
+                "-f manifests/networkpolicy-base.yaml"
+            ): "",
             "kubectl -n tron set env deployment/nginx REDIS_HOST-": "",
             "kubectl -n tron rollout status deployment/redis --timeout=120s": "",
             "kubectl -n tron rollout status deployment/nginx --timeout=120s": "",
@@ -79,7 +82,7 @@ class StubExecutor:
 
 class FailingRestoreExecutor(StubExecutor):
     def run(self, command: str, timeout: float = 20.0) -> StubCommandResult:
-        if command == "kubectl -n tron apply --validate=false -f manifests/nginx.yaml":
+        if command.startswith("kubectl -n tron apply --validate=false ") and "manifests/nginx.yaml" in command:
             return StubCommandResult(
                 command=command,
                 return_code=1,
@@ -238,7 +241,7 @@ class EnvironmentLoopTests(unittest.TestCase):
             env.reset(scenario_id="bad-rollout-wrong-redis-host", seed=17)
 
         self.assertIn("baseline restore failed", str(ctx.exception))
-        self.assertIn("kubectl -n tron apply --validate=false -f manifests/nginx.yaml", str(ctx.exception))
+        self.assertIn("manifests/nginx.yaml", str(ctx.exception))
         self.assertIn("mock nginx apply failure", str(ctx.exception))
 
     @patch("tron.env.probe_service")
