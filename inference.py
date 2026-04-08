@@ -236,18 +236,31 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def resolve_planner_config() -> tuple[str, str, str]:
     api_base_url = os.getenv("API_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
     model_name = os.getenv("MODEL_NAME") or os.getenv("OPENAI_MODEL")
-    hf_token = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
-    if not api_base_url or not model_name or not hf_token:
-        raise RuntimeError(
-            "Set API_BASE_URL, MODEL_NAME, and HF_TOKEN "
-            "(or OPENAI_BASE_URL, OPENAI_MODEL, and OPENAI_API_KEY) before running inference.py"
-        )
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("HF_TOKEN")
 
-    planner = OpenAIPlanner(api_base_url=api_base_url, model_name=model_name, api_key=hf_token)
+    missing: list[str] = []
+    if not model_name:
+        missing.append("MODEL_NAME (or OPENAI_MODEL)")
+    if not api_key:
+        missing.append("OPENAI_API_KEY (or HF_TOKEN)")
+    if missing:
+        raise RuntimeError(
+            "Set "
+            + " and ".join(missing)
+            + " before running inference.py. "
+            + "API_BASE_URL defaults to https://api.openai.com/v1 when unset."
+        )
+    return api_base_url, model_name, api_key
+
+
+def main() -> None:
+    args = parse_args()
+    api_base_url, model_name, api_key = resolve_planner_config()
+
+    planner = OpenAIPlanner(api_base_url=api_base_url, model_name=model_name, api_key=api_key)
     env_client = build_env_client(args.env_base_url or None)
 
     try:

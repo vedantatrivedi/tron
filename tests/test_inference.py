@@ -5,7 +5,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from inference import OpenAIPlanner, build_prompt, emit, parse_planner_response
+from inference import OpenAIPlanner, build_prompt, emit, parse_planner_response, resolve_planner_config
 from tron_openenv.models import ClusterSummaryView, ServiceProbeView, TronObservation, TronTask
 
 
@@ -76,6 +76,39 @@ class InferenceHelpersTests(unittest.TestCase):
 
         self.assertEqual(proposal.intent, "execute next benchmark action")
         self.assertEqual(proposal.command, "kubectl -n tron get pods")
+
+    def test_resolve_planner_config_prefers_openai_api_key_over_hf_token(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_BASE_URL": "https://example.com/v1",
+                "OPENAI_MODEL": "gpt-5-mini",
+                "OPENAI_API_KEY": "openai-key",
+                "HF_TOKEN": "hf-token",
+            },
+            clear=True,
+        ):
+            api_base_url, model_name, api_key = resolve_planner_config()
+
+        self.assertEqual(api_base_url, "https://example.com/v1")
+        self.assertEqual(model_name, "gpt-5-mini")
+        self.assertEqual(api_key, "openai-key")
+
+    def test_resolve_planner_config_accepts_submission_style_variables(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "API_BASE_URL": "https://example.com/v1",
+                "MODEL_NAME": "gpt-5-mini",
+                "HF_TOKEN": "submission-key",
+            },
+            clear=True,
+        ):
+            api_base_url, model_name, api_key = resolve_planner_config()
+
+        self.assertEqual(api_base_url, "https://example.com/v1")
+        self.assertEqual(model_name, "gpt-5-mini")
+        self.assertEqual(api_key, "submission-key")
 
 
 if __name__ == "__main__":

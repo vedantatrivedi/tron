@@ -20,10 +20,6 @@ from tron_openenv.models import ResetRequest, ResetResponse, StepResponse, TronA
 from tron_openenv.server.environment import ClusterNotAvailableError, TronOpenEnvService
 
 
-def _reset_route_uses_async_job() -> bool:
-    return os.getenv("TRON_OPENENV_RESET_ROUTE_MODE", "").strip().lower() == "async"
-
-
 def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
     runtime = service or TronOpenEnvService()
     app = FastAPI(title="tron OpenEnv server", version="1.0.0")
@@ -51,11 +47,9 @@ def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
     def tasks() -> list[TronTask]:
         return runtime.list_tasks()
 
-    @app.post("/reset")
-    def reset(request: Optional[ResetRequest] = None) -> object:
+    @app.post("/reset", response_model=ResetResponse)
+    def reset(request: Optional[ResetRequest] = None) -> ResetResponse:
         try:
-            if _reset_route_uses_async_job():
-                return runtime.start_reset_async(request or ResetRequest())
             return runtime.reset(request or ResetRequest())
         except ClusterNotAvailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc

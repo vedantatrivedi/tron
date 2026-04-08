@@ -327,6 +327,7 @@ python3 -m venv .venv
 # terminal 2
 export API_BASE_URL=https://api.openai.com/v1
 export MODEL_NAME=gpt-5-mini
+export OPENAI_API_KEY=...
 export HF_TOKEN=$OPENAI_API_KEY
 .venv/bin/python inference.py --env-base-url http://127.0.0.1:8000
 ```
@@ -345,7 +346,8 @@ docker run --rm \
   -e KUBECONFIG_B64="$KUBECONFIG_B64" \
   -e API_BASE_URL=https://api.openai.com/v1 \
   -e MODEL_NAME=gpt-5-mini \
-  -e HF_TOKEN=$OPENAI_API_KEY \
+  -e OPENAI_API_KEY="$OPENAI_API_KEY" \
+  -e HF_TOKEN="$OPENAI_API_KEY" \
   -p 7860:7860 \
   tron
 ```
@@ -409,6 +411,7 @@ Run the required root inference script:
 ```bash
 export API_BASE_URL=https://api.openai.com/v1
 export MODEL_NAME=gpt-5-mini
+export OPENAI_API_KEY=...
 export HF_TOKEN=$OPENAI_API_KEY
 .venv/bin/python inference.py --env-base-url http://127.0.0.1:8000
 ```
