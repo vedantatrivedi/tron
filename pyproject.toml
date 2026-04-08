@@ -21,10 +21,10 @@ dependencies = [
 ]
 
 [project.scripts]
-server = "tron_openenv.server.app:main"
+server = "server.app:main"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["tron*", "tron_openenv*"]
+include = ["tron*", "tron_openenv*", "server*"]

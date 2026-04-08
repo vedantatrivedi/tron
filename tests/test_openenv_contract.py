@@ -27,6 +27,7 @@ class OpenEnvContractTests(unittest.TestCase):
         self.assertTrue((ROOT / payload["scenario_sampling"]["catalog"]).exists())
         self.assertTrue((ROOT / payload["evaluation"]["oracle"]).exists())
         self.assertTrue((ROOT / "inference.py").exists())
+        self.assertTrue((ROOT / "server" / "app.py").exists())
         self.assertTrue((ROOT / "tron_openenv" / "server" / "app.py").exists())
         self.assertTrue((ROOT / "tron_openenv" / "client.py").exists())
 
