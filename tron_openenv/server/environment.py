@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Thread
 from uuid import uuid4
 
 logger = logging.getLogger("tron.server")
@@ -131,9 +131,11 @@ class TronOpenEnvService:
         self.tasks = tasks or TASKS
         self.env = env or TronEnvironment(_build_config(self.tasks["easy"].max_agent_steps))
         self.lock = Lock()
+        self.jobs_lock = Lock()
         self.cluster_check_timeout_seconds = _float_env("TRON_OPENENV_CLUSTER_CHECK_TIMEOUT_SECONDS", 8.0)
         self.cluster_check_ttl_seconds = _float_env("TRON_OPENENV_CLUSTER_CHECK_TTL_SECONDS", 0.0)
         self._last_cluster_check_monotonic: float | None = None
+        self.reset_jobs: dict[str, dict[str, object]] = {}
         self.current_task: TronTask | None = None
         self.current_seed: int | None = None
         self.episode_id: str | None = None
@@ -272,6 +274,58 @@ class TronOpenEnvService:
                 task=task,
                 observation=self._observation_to_model(observation, done=False),
             )
+
+    def start_reset_async(self, request: ResetRequest) -> dict[str, object]:
+        task_id = request.task_id
+        seed = request.seed
+        hard_reset = request.hard_reset
+        job_id = uuid4().hex
+        with self.jobs_lock:
+            self.reset_jobs[job_id] = {
+                "status": "running",
+                "task_id": task_id,
+                "seed": seed,
+                "hard_reset": hard_reset,
+                "submitted_at": time.time(),
+                "elapsed_seconds": 0.0,
+                "result": None,
+                "error": None,
+            }
+        worker = Thread(target=self._run_reset_async_job, args=(job_id, request), daemon=True)
+        worker.start()
+        logger.info("[reset_async] accepted job=%s task=%s seed=%s hard_reset=%s", job_id[:8], task_id, seed, hard_reset)
+        return self.get_reset_job(job_id)
+
+    def _run_reset_async_job(self, job_id: str, request: ResetRequest) -> None:
+        started = time.perf_counter()
+        try:
+            response = self.reset(request)
+        except Exception as exc:
+            elapsed_seconds = time.perf_counter() - started
+            with self.jobs_lock:
+                job = self.reset_jobs[job_id]
+                job["status"] = "failed"
+                job["elapsed_seconds"] = round(elapsed_seconds, 3)
+                job["error"] = f"{type(exc).__name__}: {exc}"
+            logger.exception("[reset_async] job=%s failed after %.2fs", job_id[:8], elapsed_seconds)
+            return
+
+        elapsed_seconds = time.perf_counter() - started
+        with self.jobs_lock:
+            job = self.reset_jobs[job_id]
+            job["status"] = "completed"
+            job["elapsed_seconds"] = round(elapsed_seconds, 3)
+            job["result"] = response.model_dump()
+        logger.info("[reset_async] job=%s completed in %.2fs", job_id[:8], elapsed_seconds)
+
+    def get_reset_job(self, job_id: str) -> dict[str, object]:
+        with self.jobs_lock:
+            try:
+                payload = self.reset_jobs[job_id].copy()
+            except KeyError as exc:
+                raise KeyError(f"unknown reset job: {job_id}") from exc
+        payload["job_id"] = job_id
+        return payload
 
     def step(self, action: TronAction) -> StepResponse:
         with self.lock:

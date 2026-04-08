@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import importlib
 import os
+import time
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
@@ -50,7 +51,7 @@ def _template(scenario_id: str = "service-selector-mismatch") -> ScenarioTemplat
 
 
 class FakeCoreEnv:
-    def __init__(self, *, repair_complete: bool = True, executor=None) -> None:
+    def __init__(self, *, repair_complete: bool = True, executor=None, reset_delay_seconds: float = 0.0) -> None:
         self.config = BenchmarkConfig(
             max_agent_steps=12,
             work_dir=".",  # type: ignore[arg-type]
@@ -58,6 +59,7 @@ class FakeCoreEnv:
         )
         self.executor = executor
         self.repair_complete = repair_complete
+        self.reset_delay_seconds = reset_delay_seconds
         self.current_instance: ScenarioInstance | None = None
         self.current_observation: ObservationBundle | None = None
         self.current_service_score = 0.0
@@ -68,6 +70,8 @@ class FakeCoreEnv:
 
     def reset(self, scenario_id: str | None = None, seed: int | None = None, hard_reset: bool = False) -> ObservationBundle:
         del hard_reset
+        if self.reset_delay_seconds:
+            time.sleep(self.reset_delay_seconds)
         scenario_id = scenario_id or "service-selector-mismatch"
         self.current_instance = ScenarioInstance(
             template=_template(scenario_id),
@@ -247,6 +251,30 @@ class OpenEnvServerTests(unittest.TestCase):
 
         self.assertEqual(reset_response.status_code, 200)
         self.assertEqual(reset_response.json()["task"]["id"], "easy")
+
+    def test_http_reset_async_can_be_polled_until_completed(self) -> None:
+        app = create_app(TronOpenEnvService(env=FakeCoreEnv(reset_delay_seconds=0.05)))
+        client = TestClient(app)
+
+        start_response = client.post("/reset_async")
+        self.assertEqual(start_response.status_code, 200)
+        job = start_response.json()
+        self.assertEqual(job["status"], "running")
+
+        job_id = job["job_id"]
+        deadline = time.time() + 1.0
+        last_status = job
+        while time.time() < deadline:
+            status_response = client.get(f"/reset_async/{job_id}")
+            self.assertEqual(status_response.status_code, 200)
+            last_status = status_response.json()
+            if last_status["status"] == "completed":
+                break
+            time.sleep(0.01)
+
+        self.assertEqual(last_status["status"], "completed")
+        self.assertEqual(last_status["result"]["task"]["id"], "easy")
+        self.assertIsNone(last_status["error"])
 
     def test_repair_incomplete_keeps_episode_open(self) -> None:
         service = TronOpenEnvService(env=FakeCoreEnv(repair_complete=False))

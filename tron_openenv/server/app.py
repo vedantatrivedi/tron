@@ -57,6 +57,17 @@ def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.post("/reset_async")
+    def reset_async(request: Optional[ResetRequest] = None) -> dict[str, object]:
+        return runtime.start_reset_async(request or ResetRequest())
+
+    @app.get("/reset_async/{job_id}")
+    def reset_async_status(job_id: str) -> dict[str, object]:
+        try:
+            return runtime.get_reset_job(job_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     @app.post("/step", response_model=StepResponse)
     def step(action: TronAction) -> StepResponse:
         try:
