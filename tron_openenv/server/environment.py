@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from pathlib import Path
 from threading import Lock
 from uuid import uuid4
@@ -32,6 +33,7 @@ from tron_openenv.models import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_BENCHMARK_CONFIG = BenchmarkConfig()
 
 TASK_SCENARIO_IDS: dict[str, str] = {
     "easy": "service-selector-mismatch",
@@ -77,10 +79,48 @@ def _build_cluster_config() -> ClusterConfig:
     )
 
 
+def _float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw in {None, ""}:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("Ignoring invalid %s=%r; using default %.3f", name, raw, default)
+        return default
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw in {None, ""}:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("Ignoring invalid %s=%r; using default %d", name, raw, default)
+        return default
+
+
 def _build_config(max_agent_steps: int) -> BenchmarkConfig:
     return BenchmarkConfig(
         random_seed=0,
         max_agent_steps=max_agent_steps,
+        blackbox_timeout_seconds=_float_env(
+            "TRON_OPENENV_BLACKBOX_TIMEOUT_SECONDS",
+            DEFAULT_BENCHMARK_CONFIG.blackbox_timeout_seconds,
+        ),
+        trusted_timeout_seconds=_float_env(
+            "TRON_OPENENV_TRUSTED_TIMEOUT_SECONDS",
+            DEFAULT_BENCHMARK_CONFIG.trusted_timeout_seconds,
+        ),
+        rollout_status_timeout_seconds=_int_env(
+            "TRON_OPENENV_ROLLOUT_TIMEOUT_SECONDS",
+            DEFAULT_BENCHMARK_CONFIG.rollout_status_timeout_seconds,
+        ),
+        mutation_settle_seconds=_float_env(
+            "TRON_OPENENV_MUTATION_SETTLE_SECONDS",
+            DEFAULT_BENCHMARK_CONFIG.mutation_settle_seconds,
+        ),
         work_dir=ROOT,
         cluster=_build_cluster_config(),
     )
@@ -91,6 +131,9 @@ class TronOpenEnvService:
         self.tasks = tasks or TASKS
         self.env = env or TronEnvironment(_build_config(self.tasks["easy"].max_agent_steps))
         self.lock = Lock()
+        self.cluster_check_timeout_seconds = _float_env("TRON_OPENENV_CLUSTER_CHECK_TIMEOUT_SECONDS", 8.0)
+        self.cluster_check_ttl_seconds = _float_env("TRON_OPENENV_CLUSTER_CHECK_TTL_SECONDS", 0.0)
+        self._last_cluster_check_monotonic: float | None = None
         self.current_task: TronTask | None = None
         self.current_seed: int | None = None
         self.episode_id: str | None = None
@@ -139,51 +182,90 @@ class TronOpenEnvService:
         executor = getattr(self.env, "executor", None)
         if executor is None:
             return
+        started = time.perf_counter()
+        if self.cluster_check_ttl_seconds > 0 and self._last_cluster_check_monotonic is not None:
+            age_seconds = time.monotonic() - self._last_cluster_check_monotonic
+            if age_seconds < self.cluster_check_ttl_seconds:
+                logger.info(
+                    "[reset] cluster precheck cache hit age=%.2fs ttl=%.2fs",
+                    age_seconds,
+                    self.cluster_check_ttl_seconds,
+                )
+                return
+        request_timeout_seconds = max(int(self.cluster_check_timeout_seconds - 1), 1)
         try:
             result = executor.run_argv(
-                ["kubectl", "cluster-info", "--request-timeout=5s"],
-                timeout=8.0,
+                ["kubectl", "cluster-info", f"--request-timeout={request_timeout_seconds}s"],
+                timeout=self.cluster_check_timeout_seconds,
             )
         except FileNotFoundError:
+            logger.warning(
+                "[reset] cluster precheck failed after %.2fs: kubectl not found in PATH",
+                time.perf_counter() - started,
+            )
             raise ClusterNotAvailableError(
                 "kubectl not found in PATH. The server is not connected to a Kubernetes cluster. "
                 "Provide cluster credentials via the KUBECONFIG_B64 environment variable."
             )
         if result.return_code != 0:
             detail = (result.stderr or result.stdout or "no output").strip().splitlines()[0][:200]
+            logger.warning(
+                "[reset] cluster precheck failed after %.2fs: %s",
+                time.perf_counter() - started,
+                detail,
+            )
             raise ClusterNotAvailableError(
                 f"Kubernetes cluster is not reachable. "
                 f"Provide cluster credentials via the KUBECONFIG_B64 environment variable. "
                 f"kubectl error: {detail}"
             )
+        self._last_cluster_check_monotonic = time.monotonic()
+        logger.info(
+            "[reset] cluster precheck ok in %.2fs",
+            time.perf_counter() - started,
+        )
 
     def reset(self, request: ResetRequest) -> ResetResponse:
+        started = time.perf_counter()
         with self.lock:
-            self._assert_cluster_reachable()
             task = self._require_task(request.task_id)
             seed = request.seed if request.seed is not None else task.default_seed
             scenario_id = TASK_SCENARIO_IDS[task.id]
             self.env.config.max_agent_steps = task.max_agent_steps
             logger.info(
-                "[reset] task=%s scenario=%s seed=%d hard_reset=%s",
+                "[reset] requested task=%s scenario=%s seed=%d hard_reset=%s",
                 task.id, scenario_id, seed, request.hard_reset,
             )
-            observation = self.env.reset(
-                scenario_id=scenario_id,
-                seed=seed,
-                hard_reset=request.hard_reset,
-            )
+            self._assert_cluster_reachable()
+            env_reset_started = time.perf_counter()
+            try:
+                observation = self.env.reset(
+                    scenario_id=scenario_id,
+                    seed=seed,
+                    hard_reset=request.hard_reset,
+                )
+            except Exception:
+                logger.exception(
+                    "[reset] env reset failed after %.2fs for task=%s scenario=%s seed=%d",
+                    time.perf_counter() - env_reset_started,
+                    task.id,
+                    scenario_id,
+                    seed,
+                )
+                raise
             self.current_task = task
             self.current_seed = seed
             self.episode_id = uuid4().hex
             self.cumulative_reward = 0.0
             self.last_evaluation = None
             logger.info(
-                "[reset] episode=%s ready score=%.2f health=%s data=%s incident=%r",
+                "[reset] episode=%s ready score=%.2f health=%s data=%s env_reset=%.2fs total=%.2fs incident=%r",
                 self.episode_id[:8],
                 observation.service_probe.score,
                 observation.service_probe.health_status,
                 observation.service_probe.data_status,
+                time.perf_counter() - env_reset_started,
+                time.perf_counter() - started,
                 observation.incident_brief,
             )
             return ResetResponse(

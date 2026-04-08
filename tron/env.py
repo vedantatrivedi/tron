@@ -88,7 +88,10 @@ class TronEnvironment:
         logger.info("[setup] restoring baseline manifests (namespace=%s)", self.config.cluster.namespace)
         run_checked_commands(
             self.executor,
-            build_baseline_restore_commands(self.config.cluster.namespace),
+            build_baseline_restore_commands(
+                self.config.cluster.namespace,
+                rollout_timeout_seconds=self.config.rollout_status_timeout_seconds,
+            ),
             timeout=self.config.trusted_timeout_seconds,
             stage="baseline restore",
         )

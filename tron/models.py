@@ -46,6 +46,7 @@ class BenchmarkConfig:
     observation_line_limit: int = 50
     action_timeout_seconds: float = 20.0
     trusted_timeout_seconds: float = 180.0
+    rollout_status_timeout_seconds: int = 120
     mutation_settle_seconds: float = 1.0
     work_dir: Path = Path(".")
     cluster: ClusterConfig = field(default_factory=ClusterConfig)

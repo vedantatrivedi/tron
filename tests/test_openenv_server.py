@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import io
 import importlib
+import os
 import unittest
 from contextlib import redirect_stdout
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -48,12 +50,13 @@ def _template(scenario_id: str = "service-selector-mismatch") -> ScenarioTemplat
 
 
 class FakeCoreEnv:
-    def __init__(self, *, repair_complete: bool = True) -> None:
+    def __init__(self, *, repair_complete: bool = True, executor=None) -> None:
         self.config = BenchmarkConfig(
             max_agent_steps=12,
             work_dir=".",  # type: ignore[arg-type]
             cluster=ClusterConfig(namespace="tron", ingress_host="tron.localhost", ingress_port=8080),
         )
+        self.executor = executor
         self.repair_complete = repair_complete
         self.current_instance: ScenarioInstance | None = None
         self.current_observation: ObservationBundle | None = None
@@ -166,6 +169,26 @@ class StaticPlanner:
 
 
 class OpenEnvServerTests(unittest.TestCase):
+    def test_server_config_supports_space_specific_timeout_overrides(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "TRON_OPENENV_BLACKBOX_TIMEOUT_SECONDS": "1.5",
+                "TRON_OPENENV_TRUSTED_TIMEOUT_SECONDS": "45",
+                "TRON_OPENENV_ROLLOUT_TIMEOUT_SECONDS": "30",
+                "TRON_OPENENV_MUTATION_SETTLE_SECONDS": "0.25",
+            },
+            clear=False,
+        ):
+            from tron_openenv.server.environment import _build_config
+
+            config = _build_config(max_agent_steps=12)
+
+        self.assertEqual(config.blackbox_timeout_seconds, 1.5)
+        self.assertEqual(config.trusted_timeout_seconds, 45.0)
+        self.assertEqual(config.rollout_status_timeout_seconds, 30)
+        self.assertEqual(config.mutation_settle_seconds, 0.25)
+
     def test_repo_root_app_is_a_compatibility_shim(self) -> None:
         root_app_module = importlib.import_module("app")
 
@@ -231,6 +254,26 @@ class OpenEnvServerTests(unittest.TestCase):
         result = service.step(TronAction(command="kubectl -n tron get service redis -o yaml"))
         self.assertFalse(result.done)
         self.assertFalse(result.info["repair_complete"])
+
+    def test_cluster_precheck_cache_skips_repeated_kubectl_probe_within_ttl(self) -> None:
+        class CountingExecutor:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def run_argv(self, argv, timeout=20.0):
+                del argv, timeout
+                self.calls += 1
+                return type("Result", (), {"return_code": 0, "stderr": "", "stdout": "ok"})()
+
+        executor = CountingExecutor()
+        service = TronOpenEnvService(env=FakeCoreEnv(executor=executor))
+        service.cluster_check_ttl_seconds = 60.0
+        service._last_cluster_check_monotonic = 0.0
+
+        with patch("tron_openenv.server.environment.time.monotonic", return_value=10.0):
+            service._assert_cluster_reachable()
+
+        self.assertEqual(executor.calls, 0)
 
     def test_inference_logs_structured_tags(self) -> None:
         session = TestClient(create_app(TronOpenEnvService(env=FakeCoreEnv())))

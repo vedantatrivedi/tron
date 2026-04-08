@@ -25,7 +25,8 @@ def build_hard_reset_commands(cluster: ClusterConfig) -> list[str]:
     return [f"{prefix} bash ./cleanup.sh", f"{prefix} bash ./setup.sh"]
 
 
-def build_baseline_restore_commands(namespace: str) -> list[str]:
+def build_baseline_restore_commands(namespace: str, rollout_timeout_seconds: int = 120) -> list[str]:
+    rollout_timeout_seconds = max(int(rollout_timeout_seconds), 1)
     return [
         "kubectl apply --validate=false -f manifests/namespace.yaml",
         f"kubectl -n {namespace} apply --validate=false -f manifests/configmap.yaml",
@@ -34,8 +35,8 @@ def build_baseline_restore_commands(namespace: str) -> list[str]:
         f"kubectl -n {namespace} apply --validate=false -f manifests/ingress.yaml",
         f"kubectl -n {namespace} apply --validate=false -f manifests/networkpolicy-base.yaml",
         f"kubectl -n {namespace} set env deployment/nginx REDIS_HOST-",
-        f"kubectl -n {namespace} rollout status deployment/redis --timeout=120s",
-        f"kubectl -n {namespace} rollout status deployment/nginx --timeout=120s",
+        f"kubectl -n {namespace} rollout status deployment/redis --timeout={rollout_timeout_seconds}s",
+        f"kubectl -n {namespace} rollout status deployment/nginx --timeout={rollout_timeout_seconds}s",
     ]
 
 
