@@ -42,6 +42,30 @@ def build_baseline_restore_commands(namespace: str, rollout_timeout_seconds: int
     ]
 
 
+def build_runtime_override_probe_command(namespace: str) -> str:
+    return (
+        f"kubectl -n {namespace} get deployment nginx "
+        "-o jsonpath='{.spec.template.spec.containers[*].env[*].name}'"
+    )
+
+
+def deployment_changed_from_apply(output: str, deployment_name: str) -> bool:
+    needle = f"deployment.apps/{deployment_name} "
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith(needle):
+            continue
+        return not stripped.endswith("unchanged")
+    return False
+
+
+def command_output_indicates_change(output: str) -> bool:
+    lowered = output.lower()
+    if not lowered.strip():
+        return False
+    return "unchanged" not in lowered and "no change" not in lowered
+
+
 def run_checked_commands(
     executor: SupportsTrustedExecution,
     commands: list[str],

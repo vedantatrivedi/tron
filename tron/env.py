@@ -24,6 +24,9 @@ from tron.runtime_setup import (
     build_baseline_restore_commands,
     build_cluster_env_prefix,
     build_hard_reset_commands,
+    build_runtime_override_probe_command,
+    command_output_indicates_change,
+    deployment_changed_from_apply,
     run_checked_commands,
 )
 from tron.sampler import sample_scenario
@@ -90,15 +93,54 @@ class TronEnvironment:
 
     def restore_baseline(self) -> None:
         logger.info("[setup] restoring baseline manifests (namespace=%s)", self.config.cluster.namespace)
-        run_checked_commands(
-            self.executor,
-            build_baseline_restore_commands(
-                self.config.cluster.namespace,
-                rollout_timeout_seconds=self.config.rollout_status_timeout_seconds,
-            ),
-            timeout=self.config.trusted_timeout_seconds,
-            stage="baseline restore",
+        namespace = self.config.cluster.namespace
+        trusted_timeout = self.config.trusted_timeout_seconds
+        commands = build_baseline_restore_commands(
+            namespace,
+            rollout_timeout_seconds=self.config.rollout_status_timeout_seconds,
         )
+
+        namespace_result = self.executor.run(commands[0], timeout=trusted_timeout)
+        if namespace_result.return_code != 0:
+            details = namespace_result.stderr or namespace_result.stdout or "command failed with no output"
+            raise RuntimeError(f"baseline restore failed for `{commands[0]}`: {details}")
+
+        apply_result = self.executor.run(commands[1], timeout=trusted_timeout)
+        if apply_result.return_code != 0:
+            details = apply_result.stderr or apply_result.stdout or "command failed with no output"
+            raise RuntimeError(f"baseline restore failed for `{commands[1]}`: {details}")
+
+        changed_deployments = {
+            name
+            for name in ("redis", "nginx")
+            if deployment_changed_from_apply(apply_result.stdout, name)
+        }
+
+        override_probe = build_runtime_override_probe_command(namespace)
+        probe_result = self.executor.run(override_probe, timeout=trusted_timeout)
+        if probe_result.return_code != 0:
+            details = probe_result.stderr or probe_result.stdout or "command failed with no output"
+            raise RuntimeError(f"baseline restore failed for `{override_probe}`: {details}")
+
+        if "REDIS_HOST" in (probe_result.stdout or "").split():
+            clear_result = self.executor.run(commands[2], timeout=trusted_timeout)
+            if clear_result.return_code != 0:
+                details = clear_result.stderr or clear_result.stdout or "command failed with no output"
+                raise RuntimeError(f"baseline restore failed for `{commands[2]}`: {details}")
+            if command_output_indicates_change(clear_result.stdout or clear_result.stderr):
+                changed_deployments.add("nginx")
+
+        for deployment_name in ("redis", "nginx"):
+            if deployment_name not in changed_deployments:
+                continue
+            rollout_command = (
+                f"kubectl -n {namespace} rollout status deployment/{deployment_name} "
+                f"--timeout={self.config.rollout_status_timeout_seconds}s"
+            )
+            rollout_result = self.executor.run(rollout_command, timeout=trusted_timeout)
+            if rollout_result.return_code != 0:
+                details = rollout_result.stderr or rollout_result.stdout or "command failed with no output"
+                raise RuntimeError(f"baseline restore failed for `{rollout_command}`: {details}")
         logger.info("[setup] baseline restore complete")
 
     def _validate_instance_contract(self, instance: ScenarioInstance) -> None:

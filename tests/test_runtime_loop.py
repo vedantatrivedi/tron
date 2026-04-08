@@ -90,7 +90,7 @@ class StubExecutor:
             "kubectl -n tron get pods,services,deployments,endpoints -o json": combined_summary,
             "CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./cleanup.sh": "",
             "CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./setup.sh": "",
-            "kubectl apply --validate=false -f manifests/namespace.yaml": "",
+            "kubectl apply --validate=false -f manifests/namespace.yaml": "namespace/tron unchanged",
             (
                 "kubectl -n tron apply --validate=false "
                 "-f manifests/configmap.yaml "
@@ -98,9 +98,16 @@ class StubExecutor:
                 "-f manifests/nginx.yaml "
                 "-f manifests/ingress.yaml "
                 "-f manifests/networkpolicy-base.yaml"
-            ): "",
-            "kubectl -n tron set env deployment/nginx REDIS_HOST-": "",
+            ): (
+                "configmap/app-config unchanged\n"
+                "deployment.apps/redis unchanged\n"
+                "deployment.apps/nginx unchanged\n"
+                "service/nginx unchanged\n"
+                "service/redis unchanged"
+            ),
+            "kubectl -n tron get deployment nginx -o jsonpath='{.spec.template.spec.containers[*].env[*].name}'": "",
             "kubectl -n tron rollout status deployment/nginx --timeout=120s": "",
+            "kubectl -n tron rollout status deployment/redis --timeout=120s": "",
         }
         return StubCommandResult(command=command, return_code=0, stdout=mapping.get(command, ""), stderr="")
 
@@ -260,7 +267,12 @@ class EnvironmentLoopTests(unittest.TestCase):
         env.reset(scenario_id="bad-rollout-wrong-redis-host", seed=17)
 
         self.assertIn("kubectl apply --validate=false -f manifests/namespace.yaml", executor.commands)
-        self.assertIn("kubectl -n tron set env deployment/nginx REDIS_HOST-", executor.commands)
+        self.assertIn(
+            "kubectl -n tron get deployment nginx -o jsonpath='{.spec.template.spec.containers[*].env[*].name}'",
+            executor.commands,
+        )
+        self.assertNotIn("kubectl -n tron set env deployment/nginx REDIS_HOST-", executor.commands)
+        self.assertNotIn("kubectl -n tron rollout status deployment/nginx --timeout=120s", executor.commands)
         self.assertNotIn("CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./cleanup.sh", executor.commands)
         self.assertNotIn("CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./setup.sh", executor.commands)
 
