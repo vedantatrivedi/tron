@@ -276,6 +276,18 @@ class OpenEnvServerTests(unittest.TestCase):
         self.assertEqual(last_status["result"]["task"]["id"], "easy")
         self.assertIsNone(last_status["error"])
 
+    def test_http_reset_can_temporarily_dispatch_async_job(self) -> None:
+        with patch.dict(os.environ, {"TRON_OPENENV_RESET_ROUTE_MODE": "async"}, clear=False):
+            app = create_app(TronOpenEnvService(env=FakeCoreEnv(reset_delay_seconds=0.05)))
+            client = TestClient(app)
+
+            start_response = client.post("/reset")
+
+            self.assertEqual(start_response.status_code, 200)
+            payload = start_response.json()
+            self.assertEqual(payload["status"], "running")
+            self.assertIn("job_id", payload)
+
     def test_repair_incomplete_keeps_episode_open(self) -> None:
         service = TronOpenEnvService(env=FakeCoreEnv(repair_complete=False))
         service.reset(ResetRequest(task_id="easy", seed=11))
