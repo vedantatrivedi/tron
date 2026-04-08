@@ -233,7 +233,10 @@ class TronEnvironment:
                     return observation
                 if transient_deadline is None:
                     settle_interval = max(self.config.mutation_settle_seconds, 0.5)
-                    transient_deadline = time.time() + max(settle_interval * 4, 3.0)
+                    transient_deadline = time.time() + max(
+                        settle_interval * 4,
+                        self.config.transient_probe_wait_seconds,
+                    )
                     logger.info(
                         "[setup] incident is externally visible but health is still settling; waiting briefly for steady-state symptoms"
                     )
@@ -267,7 +270,7 @@ class TronEnvironment:
             return observation
 
         settle_interval = max(self.config.mutation_settle_seconds, 0.5)
-        deadline = time.time() + max(settle_interval * 4, 3.0)
+        deadline = time.time() + max(settle_interval * 4, self.config.transient_probe_wait_seconds)
         logger.info(
             "[step %d] rollout complete but service still degraded; waiting briefly for black-box recovery",
             step_number,
@@ -317,7 +320,10 @@ class TronEnvironment:
             logger.info("[setup] recent_change: %s", hint)
         self.inject(self.current_instance)
         logger.info("[setup] injection complete, running activation checks")
-        self._validate_instance_contract(self.current_instance)
+        if self.config.skip_reset_validation:
+            logger.info("[setup] skipping reset validation checks per config")
+        else:
+            self._validate_instance_contract(self.current_instance)
 
         self.step_number = 0
         self.last_reward = 0.0

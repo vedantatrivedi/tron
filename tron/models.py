@@ -48,6 +48,8 @@ class BenchmarkConfig:
     trusted_timeout_seconds: float = 180.0
     rollout_status_timeout_seconds: int = 120
     mutation_settle_seconds: float = 1.0
+    transient_probe_wait_seconds: float = 3.0
+    skip_reset_validation: bool = False
     work_dir: Path = Path(".")
     cluster: ClusterConfig = field(default_factory=ClusterConfig)
 

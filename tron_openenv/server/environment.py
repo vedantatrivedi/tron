@@ -101,6 +101,13 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw in {None, ""}:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _build_config(max_agent_steps: int) -> BenchmarkConfig:
     return BenchmarkConfig(
         random_seed=0,
@@ -120,6 +127,14 @@ def _build_config(max_agent_steps: int) -> BenchmarkConfig:
         mutation_settle_seconds=_float_env(
             "TRON_OPENENV_MUTATION_SETTLE_SECONDS",
             DEFAULT_BENCHMARK_CONFIG.mutation_settle_seconds,
+        ),
+        transient_probe_wait_seconds=_float_env(
+            "TRON_OPENENV_TRANSIENT_PROBE_WAIT_SECONDS",
+            DEFAULT_BENCHMARK_CONFIG.transient_probe_wait_seconds,
+        ),
+        skip_reset_validation=_bool_env(
+            "TRON_OPENENV_SKIP_RESET_VALIDATION",
+            DEFAULT_BENCHMARK_CONFIG.skip_reset_validation,
         ),
         work_dir=ROOT,
         cluster=_build_cluster_config(),
