@@ -89,6 +89,29 @@ class FailingRestoreExecutor(StubExecutor):
         return super().run(command, timeout=timeout)
 
 
+class MissingClusterExecutor(StubExecutor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed_restore = False
+
+    def run(self, command: str, timeout: float = 20.0) -> StubCommandResult:
+        if command == "kubectl apply --validate=false -f manifests/namespace.yaml" and not self.failed_restore:
+            self.failed_restore = True
+            self.commands.append(command)
+            return StubCommandResult(
+                command=command,
+                return_code=1,
+                stdout="",
+                stderr=(
+                    'E0407 23:22:58.734202 memcache.go:265] "Unhandled Error" '
+                    'err="couldn\'t get current server API group list: '
+                    'Get \\"https://0.0.0.0:59961/api?timeout=32s\\": '
+                    'dial tcp 0.0.0.0:59961: connect: connection refused"'
+                ),
+            )
+        return super().run(command, timeout=timeout)
+
+
 class StubIncidentEngine:
     def __init__(self) -> None:
         self.injected: list[str] = []
@@ -219,6 +242,29 @@ class EnvironmentLoopTests(unittest.TestCase):
         self.assertIn("mock nginx apply failure", str(ctx.exception))
 
     @patch("tron.env.probe_service")
+    def test_reset_falls_back_to_hard_reset_when_cluster_is_unreachable(self, probe_service_mock) -> None:
+        probe_service_mock.return_value = ServiceProbe("ok", "error", 503, 250, 0.7)
+        executor = MissingClusterExecutor()
+        env = TronEnvironment(
+            BenchmarkConfig(max_agent_steps=4, mutation_settle_seconds=0.0),
+            executor=executor,
+            catalog=load_catalog(),
+            incident_engine=StubIncidentEngine(),
+        )
+
+        env.reset(scenario_id="bad-rollout-wrong-redis-host", seed=17)
+
+        self.assertIn("kubectl apply --validate=false -f manifests/namespace.yaml", executor.commands)
+        self.assertIn(
+            "CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./cleanup.sh",
+            executor.commands,
+        )
+        self.assertIn(
+            "CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./setup.sh",
+            executor.commands,
+        )
+
+    @patch("tron.env.probe_service")
     def test_reset_raises_when_resource_incident_is_not_externally_visible(self, probe_service_mock) -> None:
         probe_service_mock.return_value = ServiceProbe("ok", "ok", 200, 90, 1.0)
         env = TronEnvironment(
@@ -232,6 +278,25 @@ class EnvironmentLoopTests(unittest.TestCase):
             env.reset(scenario_id="cpu-limits-too-low", seed=17)
 
         self.assertIn("scenario did not become externally visible", str(ctx.exception))
+
+    @patch("tron.env.probe_service")
+    @patch("tron.env.time.sleep", return_value=None)
+    def test_reset_waits_past_transient_health_failure_for_steady_state(self, _sleep_mock, probe_service_mock) -> None:
+        probe_service_mock.side_effect = [
+            ServiceProbe("error", "error", 503, 250, 0.4),
+            ServiceProbe("ok", "error", 503, 250, 0.7),
+        ]
+        env = TronEnvironment(
+            BenchmarkConfig(max_agent_steps=4, mutation_settle_seconds=0.1),
+            executor=StubExecutor(),
+            catalog=load_catalog(),
+            incident_engine=StubIncidentEngine(),
+        )
+
+        observation = env.reset(scenario_id="bad-rollout-wrong-redis-host", seed=17)
+
+        self.assertEqual(observation.service_probe.health_status, "ok")
+        self.assertEqual(observation.service_probe.data_status, "error")
 
     @patch("tron.env.probe_service")
     def test_reset_allows_non_degrading_probe_scenario(self, probe_service_mock) -> None:
@@ -275,6 +340,39 @@ class EnvironmentLoopTests(unittest.TestCase):
             env.reset(scenario_id="bad-rollout-wrong-redis-host", seed=17)
 
         self.assertIn("scenario cluster clues missing", str(ctx.exception))
+
+    @patch("tron.env.probe_service")
+    @patch("tron.env.time.sleep", return_value=None)
+    def test_rollout_status_waits_briefly_for_blackbox_recovery(self, _sleep_mock, probe_service_mock) -> None:
+        instance = sample_scenario(load_catalog(), seed=17, scenario_id="bad-rollout-wrong-redis-host")
+        probe_service_mock.side_effect = [
+            ServiceProbe("ok", "error", 503, 250, 0.7),
+            ServiceProbe("ok", "ok", 200, 90, 1.0),
+        ]
+        executor = StubExecutor()
+        env = TronEnvironment(
+            BenchmarkConfig(max_agent_steps=4, mutation_settle_seconds=0.1),
+            executor=executor,
+            catalog=load_catalog(),
+            incident_engine=StubIncidentEngine(),
+        )
+        env.current_instance = instance
+        env.current_observation = collect_observations(
+            executor=executor,
+            config=env.config,
+            instance=instance,
+            step_number=0,
+            last_action=None,
+            last_reward=0.0,
+            service_probe=ServiceProbe("ok", "error", 503, 250, 0.7),
+        )
+        env.current_service_score = env.current_observation.service_probe.score
+
+        transition = env.step("kubectl -n tron rollout status deployment/nginx --timeout=120s")
+
+        self.assertTrue(transition.done)
+        self.assertEqual(transition.service_score, 1.0)
+        self.assertEqual(transition.observation.service_probe.data_status, "ok")
 
     @patch("tron.env.probe_service")
     def test_step_updates_reward_and_completion(self, probe_service_mock) -> None:

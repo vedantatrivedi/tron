@@ -29,6 +29,24 @@ from tron.runtime_setup import (
 from tron.sampler import sample_scenario
 from tron.scenario_catalog import load_catalog
 
+_CLUSTER_UNREACHABLE_FRAGMENTS = (
+    "couldn't get current server api group list",
+    "the connection to the server",
+    "connect: connection refused",
+    "no configuration has been provided",
+    "current-context is not set",
+)
+
+
+def _is_cluster_unreachable_error(message: str) -> bool:
+    lowered = message.lower()
+    return any(fragment in lowered for fragment in _CLUSTER_UNREACHABLE_FRAGMENTS)
+
+
+def _is_rollout_status_command(command: str) -> bool:
+    stripped = command.strip()
+    return stripped.startswith("kubectl ") and " rollout status " in stripped
+
 
 class TronEnvironment:
     def __init__(
@@ -137,6 +155,7 @@ class TronEnvironment:
             return obs
         logger.info("[setup] waiting for incident to become externally visible...")
         deadline = time.time() + self.config.trusted_timeout_seconds
+        transient_deadline: float | None = None
         last_observation: ObservationBundle | None = None
 
         while time.time() < deadline:
@@ -149,7 +168,16 @@ class TronEnvironment:
                 observation.service_probe.data_status,
             )
             if observation.service_probe.score < 1.0:
-                return observation
+                if observation.service_probe.health_status == "ok":
+                    return observation
+                if transient_deadline is None:
+                    settle_interval = max(self.config.mutation_settle_seconds, 0.5)
+                    transient_deadline = time.time() + max(settle_interval * 4, 3.0)
+                    logger.info(
+                        "[setup] incident is externally visible but health is still settling; waiting briefly for steady-state symptoms"
+                    )
+                elif time.time() >= transient_deadline:
+                    return observation
 
             time.sleep(self.config.mutation_settle_seconds)
 
@@ -162,6 +190,39 @@ class TronEnvironment:
             f"data={last_observation.service_probe.data_status}"
         )
 
+    def _observe_after_rollout_status(
+        self,
+        instance: ScenarioInstance,
+        step_number: int,
+        action: str,
+    ) -> ObservationBundle:
+        observation = self.observe(
+            instance,
+            step_number=step_number,
+            last_action=action,
+            last_reward=0.0,
+        )
+        if observation.service_probe.score >= 1.0:
+            return observation
+
+        settle_interval = max(self.config.mutation_settle_seconds, 0.5)
+        deadline = time.time() + max(settle_interval * 4, 3.0)
+        logger.info(
+            "[step %d] rollout complete but service still degraded; waiting briefly for black-box recovery",
+            step_number,
+        )
+        while time.time() < deadline:
+            time.sleep(settle_interval)
+            observation = self.observe(
+                instance,
+                step_number=step_number,
+                last_action=action,
+                last_reward=0.0,
+            )
+            if observation.service_probe.score >= 1.0:
+                break
+        return observation
+
     def reset(
         self,
         scenario_id: str | None = None,
@@ -173,7 +234,17 @@ class TronEnvironment:
         if hard_reset:
             self.reset_cluster()
         else:
-            self.restore_baseline()
+            try:
+                self.restore_baseline()
+            except RuntimeError as exc:
+                if not _is_cluster_unreachable_error(str(exc)):
+                    raise
+                logger.warning(
+                    "[setup] baseline restore failed because the cluster is unreachable; "
+                    "retrying with hard reset: %s",
+                    exc,
+                )
+                self.reset_cluster()
         self.current_instance = self.sample(scenario_id=scenario_id, seed=seed)
         logger.info(
             "[setup] injecting scenario=%s seed=%d difficulty=%s",
@@ -220,12 +291,24 @@ class TronEnvironment:
             time.sleep(self.config.mutation_settle_seconds)
 
         next_step_number = self.step_number + 1
-        observation = self.observe(
-            self.current_instance,
-            step_number=next_step_number,
-            last_action=action,
-            last_reward=0.0,
-        )
+        if (
+            not result.rejected
+            and not result.timed_out
+            and result.return_code == 0
+            and _is_rollout_status_command(action)
+        ):
+            observation = self._observe_after_rollout_status(
+                self.current_instance,
+                step_number=next_step_number,
+                action=action,
+            )
+        else:
+            observation = self.observe(
+                self.current_instance,
+                step_number=next_step_number,
+                last_action=action,
+                last_reward=0.0,
+            )
         reward = round(
             (observation.service_probe.score - self.current_service_score)
             + result.action_cost
