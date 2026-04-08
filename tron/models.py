@@ -50,6 +50,7 @@ class BenchmarkConfig:
     mutation_settle_seconds: float = 1.0
     transient_probe_wait_seconds: float = 3.0
     skip_reset_validation: bool = False
+    skip_reset_cluster_summary: bool = False
     work_dir: Path = Path(".")
     cluster: ClusterConfig = field(default_factory=ClusterConfig)
 

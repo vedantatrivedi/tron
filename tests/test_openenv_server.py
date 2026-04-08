@@ -183,6 +183,7 @@ class OpenEnvServerTests(unittest.TestCase):
                 "TRON_OPENENV_MUTATION_SETTLE_SECONDS": "0.25",
                 "TRON_OPENENV_TRANSIENT_PROBE_WAIT_SECONDS": "0.5",
                 "TRON_OPENENV_SKIP_RESET_VALIDATION": "1",
+                "TRON_OPENENV_SKIP_RESET_CLUSTER_SUMMARY": "1",
             },
             clear=False,
         ):
@@ -196,6 +197,7 @@ class OpenEnvServerTests(unittest.TestCase):
         self.assertEqual(config.mutation_settle_seconds, 0.25)
         self.assertEqual(config.transient_probe_wait_seconds, 0.5)
         self.assertTrue(config.skip_reset_validation)
+        self.assertTrue(config.skip_reset_cluster_summary)
 
     def test_repo_root_app_is_a_compatibility_shim(self) -> None:
         root_app_module = importlib.import_module("app")

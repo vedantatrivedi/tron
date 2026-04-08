@@ -251,6 +251,32 @@ class ObservationTests(unittest.TestCase):
         self.assertIn("nginx-123", observation.cluster_summary.pods)
         self.assertTrue(observation.recent_change_hint)
 
+    def test_fast_reset_can_skip_cluster_summary_collection(self) -> None:
+        instance = sample_scenario(load_catalog(), seed=17, scenario_id="bad-rollout-wrong-redis-host")
+        executor = StubExecutor()
+        observation = collect_observations(
+            executor=executor,
+            config=BenchmarkConfig(skip_reset_cluster_summary=True),
+            instance=instance,
+            step_number=0,
+            last_action=None,
+            last_reward=0.0,
+            service_probe=ServiceProbe(
+                health_status="unreachable",
+                data_status="unreachable",
+                http_status=None,
+                latency_ms=None,
+                score=0.0,
+            ),
+            include_cluster_summary=False,
+        )
+
+        self.assertEqual(observation.cluster_summary.pods, "omitted during fast reset")
+        self.assertNotIn(
+            "kubectl -n tron get pods,services,deployments,endpoints -o json",
+            executor.commands,
+        )
+
 
 class EnvironmentLoopTests(unittest.TestCase):
     @patch("tron.env.probe_service")
@@ -365,6 +391,30 @@ class EnvironmentLoopTests(unittest.TestCase):
 
         self.assertEqual(observation.service_probe.health_status, "ok")
         self.assertEqual(observation.service_probe.data_status, "error")
+
+    @patch("tron.env.probe_service")
+    @patch("tron.env.time.sleep", return_value=None)
+    def test_reset_fast_profile_shortens_transient_wait_window(self, _sleep_mock, probe_service_mock) -> None:
+        probe_service_mock.side_effect = [
+            ServiceProbe("unreachable", "unreachable", None, None, 0.0),
+            ServiceProbe("unreachable", "unreachable", None, None, 0.0),
+        ]
+        env = TronEnvironment(
+            BenchmarkConfig(
+                max_agent_steps=4,
+                mutation_settle_seconds=0.1,
+                transient_probe_wait_seconds=0.1,
+            ),
+            executor=StubExecutor(),
+            catalog=load_catalog(),
+            incident_engine=StubIncidentEngine(),
+        )
+
+        with patch("tron.env.time.time", side_effect=[0.0, 0.0, 0.0, 0.11, 0.11, 0.11]):
+            observation = env.reset(scenario_id="deployment-scaled-to-zero", seed=17)
+
+        self.assertEqual(observation.service_probe.health_status, "unreachable")
+        self.assertEqual(probe_service_mock.call_count, 2)
 
     @patch("tron.env.probe_service")
     def test_reset_allows_non_degrading_probe_scenario(self, probe_service_mock) -> None:

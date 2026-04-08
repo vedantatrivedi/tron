@@ -192,6 +192,7 @@ class TronEnvironment:
         step_number: int = 0,
         last_action: str | None = None,
         last_reward: float = 0.0,
+        include_cluster_summary: bool = True,
     ) -> ObservationBundle:
         service_probe = probe_service(self.config)
         return collect_observations(
@@ -202,11 +203,13 @@ class TronEnvironment:
             last_action,
             last_reward,
             service_probe,
+            include_cluster_summary=include_cluster_summary,
         )
 
     def _wait_for_incident_observation(self, instance: ScenarioInstance) -> ObservationBundle:
+        include_cluster_summary = not self.config.skip_reset_cluster_summary
         if not instance.template.requires_service_degradation:
-            obs = self.observe(instance)
+            obs = self.observe(instance, include_cluster_summary=include_cluster_summary)
             logger.info(
                 "[setup] initial observation score=%.2f health=%s data=%s",
                 obs.service_probe.score,
@@ -220,7 +223,7 @@ class TronEnvironment:
         last_observation: ObservationBundle | None = None
 
         while time.time() < deadline:
-            observation = self.observe(instance)
+            observation = self.observe(instance, include_cluster_summary=include_cluster_summary)
             last_observation = observation
             logger.info(
                 "[setup] probe score=%.2f health=%s data=%s",
@@ -232,9 +235,9 @@ class TronEnvironment:
                 if observation.service_probe.health_status == "ok":
                     return observation
                 if transient_deadline is None:
-                    settle_interval = max(self.config.mutation_settle_seconds, 0.5)
+                    settle_interval = max(self.config.mutation_settle_seconds, 0.1)
                     transient_deadline = time.time() + max(
-                        settle_interval * 4,
+                        settle_interval,
                         self.config.transient_probe_wait_seconds,
                     )
                     logger.info(
@@ -243,7 +246,7 @@ class TronEnvironment:
                 elif time.time() >= transient_deadline:
                     return observation
 
-            time.sleep(self.config.mutation_settle_seconds)
+            time.sleep(max(self.config.mutation_settle_seconds, 0.1))
 
         if last_observation is None:
             raise RuntimeError("failed to collect post-injection observation")

@@ -108,6 +108,15 @@ def _get_cluster_summary(executor: CommandExecutor, namespace: str, limit: int) 
     )
 
 
+def _placeholder_cluster_summary(reason: str) -> ClusterSummary:
+    return ClusterSummary(
+        pods=reason,
+        services=reason,
+        deployments=reason,
+        endpoints=reason,
+    )
+
+
 def collect_observations(
     executor: CommandExecutor,
     config: BenchmarkConfig,
@@ -116,11 +125,15 @@ def collect_observations(
     last_action: str | None,
     last_reward: float,
     service_probe: ServiceProbe,
+    include_cluster_summary: bool = True,
 ) -> ObservationBundle:
     """Collect the default low-cost observation bundle."""
 
     namespace = config.cluster.namespace
-    cluster_summary = _get_cluster_summary(executor, namespace, config.observation_line_limit)
+    if include_cluster_summary:
+        cluster_summary = _get_cluster_summary(executor, namespace, config.observation_line_limit)
+    else:
+        cluster_summary = _placeholder_cluster_summary("omitted during fast reset")
 
     recent_hint = "no recent change hint"
     if instance.recent_changes:

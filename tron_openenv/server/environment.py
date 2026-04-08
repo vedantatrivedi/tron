@@ -136,6 +136,10 @@ def _build_config(max_agent_steps: int) -> BenchmarkConfig:
             "TRON_OPENENV_SKIP_RESET_VALIDATION",
             DEFAULT_BENCHMARK_CONFIG.skip_reset_validation,
         ),
+        skip_reset_cluster_summary=_bool_env(
+            "TRON_OPENENV_SKIP_RESET_CLUSTER_SUMMARY",
+            DEFAULT_BENCHMARK_CONFIG.skip_reset_cluster_summary,
+        ),
         work_dir=ROOT,
         cluster=_build_cluster_config(),
     )
