@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 import uvicorn
@@ -46,9 +47,9 @@ def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
         return runtime.list_tasks()
 
     @app.post("/reset", response_model=ResetResponse)
-    def reset(request: ResetRequest) -> ResetResponse:
+    def reset(request: Optional[ResetRequest] = None) -> ResetResponse:
         try:
-            return runtime.reset(request)
+            return runtime.reset(request or ResetRequest())
         except ClusterNotAvailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except KeyError as exc:

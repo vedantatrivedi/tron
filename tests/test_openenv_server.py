@@ -216,6 +216,15 @@ class OpenEnvServerTests(unittest.TestCase):
         self.assertEqual(state_response.status_code, 200)
         self.assertEqual(state_response.json()["oracle_score"], 1.0)
 
+    def test_http_reset_without_body_uses_default_request(self) -> None:
+        app = create_app(TronOpenEnvService(env=FakeCoreEnv()))
+        client = TestClient(app)
+
+        reset_response = client.post("/reset")
+
+        self.assertEqual(reset_response.status_code, 200)
+        self.assertEqual(reset_response.json()["task"]["id"], "easy")
+
     def test_repair_incomplete_keeps_episode_open(self) -> None:
         service = TronOpenEnvService(env=FakeCoreEnv(repair_complete=False))
         service.reset(ResetRequest(task_id="easy", seed=11))
