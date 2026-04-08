@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tron"
+version = "0.1.0"
+description = "OpenEnv-compatible Kubernetes incident benchmark."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "PyYAML==6.0.2",
+  "requests==2.32.3",
+  "urllib3<2",
+  "python-dotenv==1.0.1",
+  "openai>=1.75.0,<2",
+  "anthropic>=0.50.0,<1",
+  "fastapi>=0.115.0,<1",
+  "uvicorn[standard]>=0.34.0,<1",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["tron*", "tron_openenv*"]
