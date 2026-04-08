@@ -293,7 +293,7 @@ class EnvironmentLoopTests(unittest.TestCase):
         env.reset(scenario_id="bad-rollout-wrong-redis-host", seed=17)
 
         self.assertIn("kubectl apply --validate=false -f manifests/namespace.yaml", executor.commands)
-        self.assertIn(
+        self.assertNotIn(
             "kubectl -n tron get deployment nginx -o jsonpath='{.spec.template.spec.containers[*].env[*].name}'",
             executor.commands,
         )
@@ -301,6 +301,25 @@ class EnvironmentLoopTests(unittest.TestCase):
         self.assertNotIn("kubectl -n tron rollout status deployment/nginx --timeout=120s", executor.commands)
         self.assertNotIn("CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./cleanup.sh", executor.commands)
         self.assertNotIn("CLUSTER_NAME=tron-lab INGRESS_HOST=tron.localhost INGRESS_PORT=8080 NAMESPACE=tron bash ./setup.sh", executor.commands)
+
+    @patch("tron.env.probe_service")
+    def test_reset_cleans_runtime_override_after_prior_mutation(self, probe_service_mock) -> None:
+        probe_service_mock.return_value = ServiceProbe("ok", "error", 503, 250, 0.7)
+        executor = StubExecutor()
+        env = TronEnvironment(
+            BenchmarkConfig(max_agent_steps=4, mutation_settle_seconds=0.0),
+            executor=executor,
+            catalog=load_catalog(),
+            incident_engine=StubIncidentEngine(),
+        )
+        env._needs_runtime_override_cleanup = True
+
+        env.reset(scenario_id="bad-rollout-wrong-redis-host", seed=17)
+
+        self.assertIn(
+            "kubectl -n tron get deployment nginx -o jsonpath='{.spec.template.spec.containers[*].env[*].name}'",
+            executor.commands,
+        )
 
     @patch("tron.env.probe_service")
     def test_reset_hard_reset_recreates_cluster(self, probe_service_mock) -> None:

@@ -109,12 +109,15 @@ def _bool_env(name: str, default: bool) -> bool:
 
 
 def _build_config(max_agent_steps: int) -> BenchmarkConfig:
+    default_blackbox_timeout = min(DEFAULT_BENCHMARK_CONFIG.blackbox_timeout_seconds, 0.5)
+    default_mutation_settle = 0.1
+    default_transient_probe_wait = 0.1
     return BenchmarkConfig(
         random_seed=0,
         max_agent_steps=max_agent_steps,
         blackbox_timeout_seconds=_float_env(
             "TRON_OPENENV_BLACKBOX_TIMEOUT_SECONDS",
-            DEFAULT_BENCHMARK_CONFIG.blackbox_timeout_seconds,
+            default_blackbox_timeout,
         ),
         trusted_timeout_seconds=_float_env(
             "TRON_OPENENV_TRUSTED_TIMEOUT_SECONDS",
@@ -126,11 +129,11 @@ def _build_config(max_agent_steps: int) -> BenchmarkConfig:
         ),
         mutation_settle_seconds=_float_env(
             "TRON_OPENENV_MUTATION_SETTLE_SECONDS",
-            DEFAULT_BENCHMARK_CONFIG.mutation_settle_seconds,
+            default_mutation_settle,
         ),
         transient_probe_wait_seconds=_float_env(
             "TRON_OPENENV_TRANSIENT_PROBE_WAIT_SECONDS",
-            DEFAULT_BENCHMARK_CONFIG.transient_probe_wait_seconds,
+            default_transient_probe_wait,
         ),
         skip_reset_validation=_bool_env(
             "TRON_OPENENV_SKIP_RESET_VALIDATION",
@@ -138,7 +141,7 @@ def _build_config(max_agent_steps: int) -> BenchmarkConfig:
         ),
         skip_reset_cluster_summary=_bool_env(
             "TRON_OPENENV_SKIP_RESET_CLUSTER_SUMMARY",
-            DEFAULT_BENCHMARK_CONFIG.skip_reset_cluster_summary,
+            True,
         ),
         work_dir=ROOT,
         cluster=_build_cluster_config(),
