@@ -7,17 +7,21 @@ name = "tron"
 version = "0.1.0"
 description = "OpenEnv-compatible Kubernetes incident benchmark."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
   "PyYAML==6.0.2",
   "requests==2.32.3",
   "urllib3<2",
   "python-dotenv==1.0.1",
-  "openai>=1.75.0,<2",
+  "openai>=2.7.2,<3",
   "anthropic>=0.50.0,<1",
   "fastapi>=0.115.0,<1",
   "uvicorn[standard]>=0.34.0,<1",
+  "openenv-core>=0.2.0,<0.3",
 ]
+
+[project.scripts]
+server = "tron_openenv.server.app:main"
 
 [tool.setuptools]
 include-package-data = true

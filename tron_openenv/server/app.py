@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """FastAPI application for the tron OpenEnv wrapper."""
 
+import argparse
 import logging
 import os
 from typing import Optional
@@ -91,9 +92,19 @@ def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
 app = create_app()
 
 
-if __name__ == "__main__":
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run the tron OpenEnv server.")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")))
+    parser.add_argument("--reload", action="store_true")
+    args = parser.parse_args()
     uvicorn.run(
         "tron_openenv.server.app:app",
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", "8000")),
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
     )
+
+
+if __name__ == "__main__":
+    main()
