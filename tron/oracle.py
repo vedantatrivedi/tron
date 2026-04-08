@@ -3,6 +3,7 @@ from __future__ import annotations
 """Black-box service oracle and final repair evaluation."""
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -39,16 +40,21 @@ def probe_service(config: BenchmarkConfig) -> ServiceProbe:
 
     probe_host = config.cluster.ingress_url_host or "127.0.0.1"
     base_url = f"http://{probe_host}:{config.cluster.ingress_port}"
-    health_status, health_http_status, _ = _probe_url(
-        f"{base_url}/health",
-        config.cluster.ingress_host,
-        config.blackbox_timeout_seconds,
-    )
-    data_status, data_http_status, latency_ms = _probe_url(
-        f"{base_url}/data",
-        config.cluster.ingress_host,
-        config.blackbox_timeout_seconds,
-    )
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        health_future = executor.submit(
+            _probe_url,
+            f"{base_url}/health",
+            config.cluster.ingress_host,
+            config.blackbox_timeout_seconds,
+        )
+        data_future = executor.submit(
+            _probe_url,
+            f"{base_url}/data",
+            config.cluster.ingress_host,
+            config.blackbox_timeout_seconds,
+        )
+        health_status, health_http_status, _ = health_future.result()
+        data_status, data_http_status, latency_ms = data_future.result()
 
     if health_status == "ok" and data_status == "ok":
         score = 1.0

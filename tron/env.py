@@ -38,6 +38,10 @@ _CLUSTER_UNREACHABLE_FRAGMENTS = (
 )
 
 
+def _check_signature(check) -> tuple[tuple[str, ...], str, str]:
+    return tuple(check.command), check.success_substring, check.match_mode
+
+
 def _is_cluster_unreachable_error(message: str) -> bool:
     lowered = message.lower()
     return any(fragment in lowered for fragment in _CLUSTER_UNREACHABLE_FRAGMENTS)
@@ -109,9 +113,21 @@ class TronEnvironment:
         logger.info("[setup] activation checks passed")
         if not instance.template.requires_service_degradation:
             return
+        activation_signatures = {_check_signature(check) for check in instance.template.activation_checks}
+        if instance.template.cluster_clue_checks:
+            clue_checks = [
+                check
+                for check in instance.template.cluster_clue_checks
+                if _check_signature(check) not in activation_signatures
+            ]
+        else:
+            clue_checks = []
+        if not clue_checks:
+            logger.info("[setup] cluster clue checks reused activation evidence")
+            return
         clue_failure = format_failed_checks(
             "scenario cluster clues missing: ",
-            self.incident_engine.verify_cluster_clues(instance),
+            self.incident_engine.verify_cluster_clues(instance, clue_checks=clue_checks),
         )
         if clue_failure:
             logger.error("[setup] cluster clue checks FAILED: %s", clue_failure)

@@ -96,11 +96,11 @@ class RuntimeSetupTests(unittest.TestCase):
         self.assertEqual(commands[0], "kubectl apply --validate=false -f manifests/namespace.yaml")
         self.assertIn("manifests/nginx.yaml", commands[1])
         self.assertEqual(commands[-1], "kubectl -n tron rollout status deployment/nginx --timeout=120s")
+        self.assertFalse(any("deployment/redis" in command for command in commands))
 
     def test_build_baseline_restore_commands_uses_configured_rollout_timeout(self) -> None:
         commands = build_baseline_restore_commands("tron", rollout_timeout_seconds=30)
 
-        self.assertIn("kubectl -n tron rollout status deployment/redis --timeout=30s", commands)
         self.assertIn("kubectl -n tron rollout status deployment/nginx --timeout=30s", commands)
 
     def test_build_hard_reset_commands_wraps_cleanup_and_setup(self) -> None:

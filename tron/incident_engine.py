@@ -34,8 +34,12 @@ class IncidentEngine:
     def verify_activation(self, instance: ScenarioInstance) -> list[CheckResult]:
         return [evaluate_check(self.executor, check) for check in instance.template.activation_checks]
 
-    def verify_cluster_clues(self, instance: ScenarioInstance) -> list[CheckResult]:
-        clue_checks = instance.template.cluster_clue_checks or instance.template.activation_checks[:1]
+    def verify_cluster_clues(
+        self,
+        instance: ScenarioInstance,
+        clue_checks: list | None = None,
+    ) -> list[CheckResult]:
+        clue_checks = clue_checks or instance.template.cluster_clue_checks or instance.template.activation_checks[:1]
         return [evaluate_check(self.executor, check) for check in clue_checks]
 
     def restore(self, instance: ScenarioInstance) -> list[str]:
