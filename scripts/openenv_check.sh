@@ -13,7 +13,7 @@ HELP_OUTPUT="$(openenv --help 2>&1 || true)"
 
 if printf '%s\n' "${HELP_OUTPUT}" | grep -Eq '(^|[[:space:]])validate([[:space:]]|$)'; then
   echo "openenv CLI detected with validate support; running official validation."
-  exec openenv validate openenv.yaml
+  exec openenv validate .
 fi
 
 echo "openenv CLI is installed, but no documented 'validate' subcommand was found; falling back to contract test (${CONTRACT_TEST})."

@@ -16,6 +16,8 @@ compile:
 		baseline/llm_agent.py \
 		eval/demo.py \
 		eval/run_eval.py \
+		graders/__init__.py \
+		graders/tron_graders.py \
 		inference.py \
 		tron/__init__.py \
 		tron/action_analysis.py \

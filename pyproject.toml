@@ -27,4 +27,4 @@ server = "server.app:main"
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["tron*", "tron_openenv*", "server*"]
+include = ["tron*", "tron_openenv*", "server*", "graders*"]

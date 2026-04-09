@@ -16,7 +16,16 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 
-from tron_openenv.models import ResetRequest, ResetResponse, StepResponse, TronAction, TronState, TronTask
+from tron_openenv.models import (
+    ResetRequest,
+    ResetResponse,
+    StepResponse,
+    TronAction,
+    TronGradeRequest,
+    TronGradeResponse,
+    TronState,
+    TronTask,
+)
 from tron_openenv.server.environment import ClusterNotAvailableError, TronOpenEnvService
 
 
@@ -73,6 +82,29 @@ def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
     def step(action: TronAction) -> StepResponse:
         try:
             return runtime.step(action)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/grader", response_model=TronGradeResponse)
+    @app.post("/grade", response_model=TronGradeResponse)
+    def grade(request: Optional[TronGradeRequest] = None) -> TronGradeResponse:
+        payload = request or TronGradeRequest()
+        try:
+            return runtime.grade(payload.task_id, seed=payload.seed)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/grader/{task_id}", response_model=TronGradeResponse)
+    @app.post("/grader/{task_id}", response_model=TronGradeResponse)
+    @app.get("/grade/{task_id}", response_model=TronGradeResponse)
+    @app.post("/grade/{task_id}", response_model=TronGradeResponse)
+    def grade_task(task_id: str) -> TronGradeResponse:
+        try:
+            return runtime.grade(task_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

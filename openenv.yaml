@@ -19,17 +19,23 @@ agents:
     description: OpenAI-client baseline that emits one kubectl or curl command per turn.
 tasks:
   - id: easy
+    name: Easy Redis Service Wiring
     scenario_id: service-selector-mismatch
     difficulty: easy
     description: Repair service-to-pod wiring so the frontend can reach redis.
+    grader: graders.tron_graders:grade_easy
   - id: medium
+    name: Medium Config Drift Rollout
     scenario_id: bad-rollout-wrong-redis-host
     difficulty: medium
     description: Repair configuration drift and ensure the durable rollout picks it up.
+    grader: graders.tron_graders:grade_medium
   - id: hard
+    name: Hard Policy Plus Drift
     scenario_id: networkpolicy-plus-secondary-drift
     difficulty: hard
     description: Repair a compound outage spanning policy and routing drift.
+    grader: graders.tron_graders:grade_hard
 observability:
   partial_observability: true
   blackbox_service_probe: true

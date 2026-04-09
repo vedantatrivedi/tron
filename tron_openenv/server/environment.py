@@ -25,6 +25,7 @@ from tron_openenv.models import (
     ServiceProbeView,
     StepResponse,
     TronAction,
+    TronGradeResponse,
     TronObservation,
     TronReward,
     TronState,
@@ -47,18 +48,27 @@ TASKS: dict[str, TronTask] = {
         difficulty="easy",
         default_seed=11,
         max_agent_steps=12,
+        name="Easy Redis Service Wiring",
+        description="Repair service-to-pod wiring so the frontend can reach redis.",
+        grader="graders.tron_graders:grade_easy",
     ),
     "medium": TronTask(
         id="medium",
         difficulty="medium",
         default_seed=13,
         max_agent_steps=15,
+        name="Medium Config Drift Rollout",
+        description="Repair configuration drift and ensure the durable rollout picks it up.",
+        grader="graders.tron_graders:grade_medium",
     ),
     "hard": TronTask(
         id="hard",
         difficulty="hard",
         default_seed=17,
         max_agent_steps=18,
+        name="Hard Policy Plus Drift",
+        description="Repair a compound outage spanning policy and routing drift.",
+        grader="graders.tron_graders:grade_hard",
     ),
 }
 
@@ -394,6 +404,31 @@ class TronOpenEnvService:
                 raise KeyError(f"unknown reset job: {job_id}") from exc
         payload["job_id"] = job_id
         return payload
+
+    def grade(self, task_id: str, seed: int | None = None) -> TronGradeResponse:
+        task = self._require_task(task_id)
+        current_task = self.current_task.id if self.current_task else None
+        if current_task != task.id or self.env.current_instance is None:
+            self.reset(ResetRequest(task_id=task.id, seed=seed))
+
+        with self.lock:
+            observation = self.env.current_observation
+            if observation is None:
+                raise RuntimeError("reset() must be called before grade()")
+            service_score = round(observation.service_probe.score, 3)
+            if not 0.0 < service_score < 1.0:
+                raise RuntimeError(
+                    f"task {task.id} is not currently in a partially graded state "
+                    f"(score={service_score:.3f})"
+                )
+            return TronGradeResponse(
+                task_id=task.id,
+                score=service_score,
+                reward=service_score,
+                episode_id=self.episode_id,
+                step_count=self.env.step_number,
+                done=self.env.done,
+            )
 
     def step(self, action: TronAction) -> StepResponse:
         with self.lock:

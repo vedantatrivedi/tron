@@ -20,6 +20,14 @@ class OpenEnvContractTests(unittest.TestCase):
         self.assertEqual(payload["entrypoints"]["server"], "python -m tron_openenv.server.app")
         self.assertEqual(payload["entrypoints"]["inference"], "python inference.py")
         self.assertEqual([task["id"] for task in payload["tasks"]], ["easy", "medium", "hard"])
+        self.assertEqual(
+            [task["grader"] for task in payload["tasks"]],
+            [
+                "graders.tron_graders:grade_easy",
+                "graders.tron_graders:grade_medium",
+                "graders.tron_graders:grade_hard",
+            ],
+        )
 
     def test_openenv_referenced_files_exist(self) -> None:
         payload = yaml.safe_load((ROOT / "openenv.yaml").read_text(encoding="utf-8"))
@@ -30,6 +38,7 @@ class OpenEnvContractTests(unittest.TestCase):
         self.assertTrue((ROOT / "server" / "app.py").exists())
         self.assertTrue((ROOT / "tron_openenv" / "server" / "app.py").exists())
         self.assertTrue((ROOT / "tron_openenv" / "client.py").exists())
+        self.assertTrue((ROOT / "graders" / "tron_graders.py").exists())
 
     def test_openenv_local_tooling_is_present(self) -> None:
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")

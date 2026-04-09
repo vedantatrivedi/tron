@@ -33,6 +33,9 @@ class TronTask(BaseModel):
     difficulty: str
     default_seed: int
     max_agent_steps: int
+    name: Optional[str] = None
+    description: Optional[str] = None
+    grader: Optional[str] = None
 
 
 class TronAction(BaseModel):
@@ -101,3 +104,21 @@ class TronState(BaseModel):
     oracle_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     oracle_verdict: Optional[str] = None
     oracle_summary: Optional[str] = None
+
+
+class TronGradeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str = "easy"
+    seed: Optional[int] = None
+
+
+class TronGradeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    score: float = Field(gt=0.0, lt=1.0)
+    reward: float = Field(gt=0.0, lt=1.0)
+    episode_id: Optional[str] = None
+    step_count: int = Field(ge=0)
+    done: bool
