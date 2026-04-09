@@ -9,6 +9,8 @@ from pathlib import Path
 from threading import Lock, Thread
 from uuid import uuid4
 
+import requests
+
 logger = logging.getLogger("tron.server")
 
 
@@ -38,6 +40,7 @@ DEFAULT_BENCHMARK_CONFIG = BenchmarkConfig()
 DEFAULT_REMOTE_INGRESS_HOST = "43.205.130.209"
 DEFAULT_REMOTE_INGRESS_PORT = 8080
 DEFAULT_REMOTE_INGRESS_HOST_HEADER = "tron.localhost"
+DEFAULT_REMOTE_GRADER_BASE_URL = "https://jj90999-tron.hf.space"
 
 TASK_SCENARIO_IDS: dict[str, str] = {
     "easy": "service-selector-mismatch",
@@ -175,6 +178,7 @@ class TronOpenEnvService:
         self.cluster_check_ttl_seconds = _float_env("TRON_OPENENV_CLUSTER_CHECK_TTL_SECONDS", 0.0)
         self.reset_settle_timeout_seconds = _float_env("TRON_OPENENV_RESET_SETTLE_TIMEOUT_SECONDS", 8.0)
         self.reset_settle_poll_seconds = _float_env("TRON_OPENENV_RESET_SETTLE_POLL_SECONDS", 0.5)
+        self.remote_grader_timeout_seconds = _float_env("TRON_OPENENV_REMOTE_GRADER_TIMEOUT_SECONDS", 60.0)
         self._last_cluster_check_monotonic: float | None = None
         self.reset_jobs: dict[str, dict[str, object]] = {}
         self.current_task: TronTask | None = None
@@ -412,30 +416,69 @@ class TronOpenEnvService:
         payload["job_id"] = job_id
         return payload
 
+    def _remote_grader_base_url(self) -> str:
+        return (os.getenv("TRON_GRADER_BASE_URL") or DEFAULT_REMOTE_GRADER_BASE_URL).rstrip("/")
+
+    def _grade_via_remote_runtime(self, task_id: str, seed: int | None = None) -> TronGradeResponse:
+        url = f"{self._remote_grader_base_url()}/grader/{task_id}"
+        payload = {"seed": seed} if seed is not None else None
+        try:
+            response = requests.post(
+                url,
+                json=payload,
+                timeout=self.remote_grader_timeout_seconds,
+            )
+            response.raise_for_status()
+            return TronGradeResponse.model_validate(response.json())
+        except Exception as exc:
+            raise RuntimeError(
+                f"remote grader fallback failed for task {task_id} via {url}: {exc}"
+            ) from exc
+
     def grade(self, task_id: str, seed: int | None = None) -> TronGradeResponse:
         task = self._require_task(task_id)
         current_task = self.current_task.id if self.current_task else None
-        if current_task != task.id or self.env.current_instance is None:
-            self.reset(ResetRequest(task_id=task.id, seed=seed))
+        try:
+            if current_task != task.id or self.env.current_instance is None:
+                self.reset(ResetRequest(task_id=task.id, seed=seed))
+        except ClusterNotAvailableError as exc:
+            logger.warning(
+                "[grader] local cluster unavailable for task=%s; falling back to remote grader: %s",
+                task.id,
+                exc,
+            )
+            return self._grade_via_remote_runtime(task.id, seed=seed)
 
+        fallback_to_remote = False
+        local_response: TronGradeResponse | None = None
         with self.lock:
             observation = self.env.current_observation
             if observation is None:
                 raise RuntimeError("reset() must be called before grade()")
             service_score = round(observation.service_probe.score, 3)
-            if not 0.0 < service_score < 1.0:
-                raise RuntimeError(
-                    f"task {task.id} is not currently in a partially graded state "
-                    f"(score={service_score:.3f})"
+            if 0.0 < service_score < 1.0:
+                local_response = TronGradeResponse(
+                    task_id=task.id,
+                    score=service_score,
+                    reward=service_score,
+                    episode_id=self.episode_id,
+                    step_count=self.env.step_number,
+                    done=self.env.done,
                 )
-            return TronGradeResponse(
-                task_id=task.id,
-                score=service_score,
-                reward=service_score,
-                episode_id=self.episode_id,
-                step_count=self.env.step_number,
-                done=self.env.done,
+            else:
+                fallback_to_remote = True
+
+        if local_response is not None:
+            return local_response
+
+        if fallback_to_remote:
+            logger.warning(
+                "[grader] local score %.3f for task=%s is outside the validator range; falling back to remote grader",
+                service_score,
+                task.id,
             )
+            return self._grade_via_remote_runtime(task.id, seed=seed)
+        raise RuntimeError(f"unable to grade task {task.id}")
 
     def step(self, action: TronAction) -> StepResponse:
         with self.lock:

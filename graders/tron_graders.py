@@ -9,6 +9,20 @@ import requests
 DEFAULT_RUNTIME_BASE_URL = "https://jj90999-tron.hf.space"
 
 
+class BoundedGrade(float):
+    @property
+    def score(self) -> float:
+        return float(self)
+
+    @property
+    def reward(self) -> float:
+        return float(self)
+
+    def model_dump(self) -> dict[str, float]:
+        value = float(self)
+        return {"score": value, "reward": value}
+
+
 def _extract_service_score(candidate: Any) -> float | None:
     if candidate is None:
         return None
@@ -55,8 +69,8 @@ def _grade_task(task_id: str, *args: Any, **kwargs: Any) -> float:
     for candidate in [*args, *kwargs.values()]:
         score = _extract_service_score(candidate)
         if score is not None:
-            return score
-    return _grade_via_runtime(task_id, base_url=kwargs.get("base_url"))
+            return BoundedGrade(score)
+    return BoundedGrade(_grade_via_runtime(task_id, base_url=kwargs.get("base_url")))
 
 
 def grade_easy(*args: Any, **kwargs: Any) -> float:
