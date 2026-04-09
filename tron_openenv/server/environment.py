@@ -156,6 +156,8 @@ class TronOpenEnvService:
         self.jobs_lock = Lock()
         self.cluster_check_timeout_seconds = _float_env("TRON_OPENENV_CLUSTER_CHECK_TIMEOUT_SECONDS", 8.0)
         self.cluster_check_ttl_seconds = _float_env("TRON_OPENENV_CLUSTER_CHECK_TTL_SECONDS", 0.0)
+        self.reset_settle_timeout_seconds = _float_env("TRON_OPENENV_RESET_SETTLE_TIMEOUT_SECONDS", 8.0)
+        self.reset_settle_poll_seconds = _float_env("TRON_OPENENV_RESET_SETTLE_POLL_SECONDS", 0.5)
         self._last_cluster_check_monotonic: float | None = None
         self.reset_jobs: dict[str, dict[str, object]] = {}
         self.current_task: TronTask | None = None
@@ -249,6 +251,49 @@ class TronOpenEnvService:
             time.perf_counter() - started,
         )
 
+    def _stabilize_reset_observation(self, observation: ObservationBundle) -> ObservationBundle:
+        instance = self.env.current_instance
+        if instance is None or not instance.template.requires_service_degradation:
+            return observation
+        if 0.0 < observation.service_probe.score < 1.0:
+            return observation
+
+        deadline = time.time() + max(self.reset_settle_timeout_seconds, 0.0)
+        poll_interval = max(self.reset_settle_poll_seconds, 0.1)
+        last_observation = observation
+        logger.info(
+            "[reset] initial score %.2f is outside the validator range; waiting up to %.2fs for steady-state symptoms",
+            observation.service_probe.score,
+            max(self.reset_settle_timeout_seconds, 0.0),
+        )
+
+        while time.time() < deadline:
+            time.sleep(poll_interval)
+            last_observation = self.env.observe(
+                instance,
+                step_number=self.env.step_number,
+                last_action=None,
+                last_reward=self.env.last_reward,
+                include_cluster_summary=not self.env.config.skip_reset_cluster_summary,
+            )
+            self.env.current_observation = last_observation
+            self.env.current_service_score = last_observation.service_probe.score
+            if 0.0 < last_observation.service_probe.score < 1.0:
+                logger.info(
+                    "[reset] stabilized score=%.2f health=%s data=%s",
+                    last_observation.service_probe.score,
+                    last_observation.service_probe.health_status,
+                    last_observation.service_probe.data_status,
+                )
+                return last_observation
+
+        logger.warning(
+            "[reset] returning out-of-range score %.2f after %.2fs of settle time",
+            last_observation.service_probe.score,
+            max(self.reset_settle_timeout_seconds, 0.0),
+        )
+        return last_observation
+
     def reset(self, request: ResetRequest) -> ResetResponse:
         started = time.perf_counter()
         with self.lock:
@@ -268,6 +313,7 @@ class TronOpenEnvService:
                     seed=seed,
                     hard_reset=request.hard_reset,
                 )
+                observation = self._stabilize_reset_observation(observation)
             except Exception:
                 logger.exception(
                     "[reset] env reset failed after %.2fs for task=%s scenario=%s seed=%d",

@@ -51,7 +51,15 @@ def _template(scenario_id: str = "service-selector-mismatch") -> ScenarioTemplat
 
 
 class FakeCoreEnv:
-    def __init__(self, *, repair_complete: bool = True, executor=None, reset_delay_seconds: float = 0.0) -> None:
+    def __init__(
+        self,
+        *,
+        repair_complete: bool = True,
+        executor=None,
+        reset_delay_seconds: float = 0.0,
+        reset_probe: ServiceProbe | None = None,
+        observe_probes: list[ServiceProbe] | None = None,
+    ) -> None:
         self.config = BenchmarkConfig(
             max_agent_steps=12,
             work_dir=".",  # type: ignore[arg-type]
@@ -60,6 +68,14 @@ class FakeCoreEnv:
         self.executor = executor
         self.repair_complete = repair_complete
         self.reset_delay_seconds = reset_delay_seconds
+        self.reset_probe = reset_probe or ServiceProbe(
+            health_status="ok",
+            data_status="error",
+            http_status=500,
+            latency_ms=50,
+            score=0.7,
+        )
+        self.observe_probes = list(observe_probes or [])
         self.current_instance: ScenarioInstance | None = None
         self.current_observation: ObservationBundle | None = None
         self.current_service_score = 0.0
@@ -87,19 +103,40 @@ class FakeCoreEnv:
         self.done = False
         self.steps = []
         self.last_reward = 0.0
-        self.current_service_score = 0.7
+        self.current_service_score = self.reset_probe.score
         self.current_observation = ObservationBundle(
             incident_brief="service degraded",
             step_number=0,
             last_action=None,
             last_reward=0.0,
-            service_probe=ServiceProbe(
-                health_status="ok",
-                data_status="error",
-                http_status=500,
-                latency_ms=50,
-                score=0.7,
+            service_probe=self.reset_probe,
+            cluster_summary=ClusterSummary(
+                pods="nginx running",
+                services="redis selector mismatch",
+                deployments="nginx 1/1",
+                endpoints="redis <none>",
             ),
+            recent_change_hint="recent hint",
+        )
+        return self.current_observation
+
+    def observe(
+        self,
+        instance: ScenarioInstance,
+        step_number: int = 0,
+        last_action: str | None = None,
+        last_reward: float = 0.0,
+        include_cluster_summary: bool = True,
+    ) -> ObservationBundle:
+        del instance, step_number, last_action, last_reward, include_cluster_summary
+        probe = self.observe_probes.pop(0) if self.observe_probes else self.current_observation.service_probe
+        self.current_service_score = probe.score
+        self.current_observation = ObservationBundle(
+            incident_brief="service degraded",
+            step_number=self.step_number,
+            last_action=None,
+            last_reward=self.last_reward,
+            service_probe=probe,
             cluster_summary=ClusterSummary(
                 pods="nginx running",
                 services="redis selector mismatch",
@@ -257,6 +294,26 @@ class OpenEnvServerTests(unittest.TestCase):
 
         self.assertEqual(reset_response.status_code, 200)
         self.assertEqual(reset_response.json()["task"]["id"], "easy")
+
+    @patch("tron_openenv.server.environment.time.sleep", return_value=None)
+    def test_http_reset_waits_for_task_score_to_enter_open_interval(self, _sleep_mock) -> None:
+        app = create_app(
+            TronOpenEnvService(
+                env=FakeCoreEnv(
+                    reset_probe=ServiceProbe("unreachable", "unreachable", None, None, 0.0),
+                    observe_probes=[ServiceProbe("ok", "error", 503, 250, 0.7)],
+                )
+            )
+        )
+        client = TestClient(app)
+
+        reset_response = client.post("/reset", json={"task_id": "medium", "seed": 13})
+
+        self.assertEqual(reset_response.status_code, 200)
+        probe = reset_response.json()["observation"]["service_probe"]
+        self.assertEqual(probe["health_status"], "ok")
+        self.assertEqual(probe["data_status"], "error")
+        self.assertEqual(probe["score"], 0.7)
 
     def test_http_reset_async_can_be_polled_until_completed(self) -> None:
         app = create_app(TronOpenEnvService(env=FakeCoreEnv(reset_delay_seconds=0.05)))
