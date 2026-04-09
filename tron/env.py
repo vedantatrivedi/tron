@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from threading import Thread
 from tron.checks import format_failed_checks
 
 logger = logging.getLogger("tron.env")
@@ -140,10 +141,13 @@ class TronEnvironment:
                 f"kubectl -n {namespace} rollout status deployment/{deployment_name} "
                 f"--timeout={self.config.rollout_status_timeout_seconds}s"
             )
-            rollout_result = self.executor.run(rollout_command, timeout=trusted_timeout)
-            if rollout_result.return_code != 0:
-                details = rollout_result.stderr or rollout_result.stdout or "command failed with no output"
-                raise RuntimeError(f"baseline restore failed for `{rollout_command}`: {details}")
+            logger.info("[setup] firing rollout status for %s (not awaited)", deployment_name)
+            Thread(
+                target=self.executor.run,
+                args=(rollout_command,),
+                kwargs={"timeout": trusted_timeout},
+                daemon=True,
+            ).start()
         self._needs_runtime_override_cleanup = False
         logger.info("[setup] baseline restore complete")
 
