@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from inference import run_task
+from inference import emit_end, emit_start, run_task
 from tron.models import (
     AgentStep,
     AgentVerdict,
@@ -315,13 +315,20 @@ class OpenEnvServerTests(unittest.TestCase):
         output = io.StringIO()
 
         with redirect_stdout(output):
+            emit_start(task_name="easy", env_name="tron", model_name="gpt-5-mini")
             summary = run_task(client, StaticPlanner(), task_id="easy", seed=11)
+            emit_end(success=summary["success"], steps=summary["steps"], rewards=summary["rewards"])
 
         rendered = output.getvalue().strip().splitlines()
-        self.assertTrue(rendered[0].startswith("[START] "))
-        self.assertTrue(rendered[1].startswith("[STEP] "))
-        self.assertTrue(rendered[-1].startswith("[END] "))
-        self.assertEqual(summary["oracle_verdict"], "success")
+        self.assertEqual(rendered[0], "[START] task=easy env=tron model=gpt-5-mini")
+        self.assertTrue(
+            rendered[1].startswith(
+                "[STEP] step=1 action=kubectl -n tron get service redis -o jsonpath={.spec.selector.app} "
+                "reward=0.30 done=true error=null"
+            )
+        )
+        self.assertEqual(rendered[-1], "[END] success=true steps=1 rewards=0.30")
+        self.assertTrue(summary["success"])
 
 
 if __name__ == "__main__":

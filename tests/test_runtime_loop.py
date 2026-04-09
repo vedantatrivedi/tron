@@ -26,8 +26,9 @@ class StubCommandResult:
 
 
 class StubExecutor:
-    def __init__(self) -> None:
+    def __init__(self, runtime_override_names: str = "") -> None:
         self.commands: list[str] = []
+        self.runtime_override_names = runtime_override_names
 
     def run(self, command: str, timeout: float = 20.0) -> StubCommandResult:
         self.commands.append(command)
@@ -106,7 +107,7 @@ class StubExecutor:
                 "service/nginx unchanged\n"
                 "service/redis unchanged"
             ),
-            "kubectl -n tron get deployment nginx -o jsonpath='{.spec.template.spec.containers[*].env[*].name}'": "",
+            "kubectl -n tron get deployment nginx -o jsonpath='{.spec.template.spec.containers[*].env[*].name}'": self.runtime_override_names,
             "kubectl -n tron rollout status deployment/nginx --timeout=120s": "",
             "kubectl -n tron rollout status deployment/redis --timeout=120s": "",
         }
@@ -294,7 +295,7 @@ class EnvironmentLoopTests(unittest.TestCase):
         env.reset(scenario_id="bad-rollout-wrong-redis-host", seed=17)
 
         self.assertIn("kubectl apply --validate=false -f manifests/namespace.yaml", executor.commands)
-        self.assertNotIn(
+        self.assertIn(
             "kubectl -n tron get deployment nginx -o jsonpath='{.spec.template.spec.containers[*].env[*].name}'",
             executor.commands,
         )
@@ -306,7 +307,7 @@ class EnvironmentLoopTests(unittest.TestCase):
     @patch("tron.env.probe_service")
     def test_reset_cleans_runtime_override_after_prior_mutation(self, probe_service_mock) -> None:
         probe_service_mock.return_value = ServiceProbe("ok", "error", 503, 250, 0.7)
-        executor = StubExecutor()
+        executor = StubExecutor(runtime_override_names="REDIS_HOST")
         env = TronEnvironment(
             BenchmarkConfig(max_agent_steps=4, mutation_settle_seconds=0.0),
             executor=executor,
@@ -321,6 +322,26 @@ class EnvironmentLoopTests(unittest.TestCase):
             "kubectl -n tron get deployment nginx -o jsonpath='{.spec.template.spec.containers[*].env[*].name}'",
             executor.commands,
         )
+        self.assertIn("kubectl -n tron set env deployment/nginx REDIS_HOST-", executor.commands)
+
+    @patch("tron.env.probe_service")
+    def test_reset_cleans_stale_runtime_override_even_without_prior_local_mutation(self, probe_service_mock) -> None:
+        probe_service_mock.return_value = ServiceProbe("ok", "error", 503, 250, 0.7)
+        executor = StubExecutor(runtime_override_names="REDIS_HOST")
+        env = TronEnvironment(
+            BenchmarkConfig(max_agent_steps=4, mutation_settle_seconds=0.0),
+            executor=executor,
+            catalog=load_catalog(),
+            incident_engine=StubIncidentEngine(),
+        )
+
+        env.reset(scenario_id="service-selector-mismatch", seed=17)
+
+        self.assertIn(
+            "kubectl -n tron get deployment nginx -o jsonpath='{.spec.template.spec.containers[*].env[*].name}'",
+            executor.commands,
+        )
+        self.assertIn("kubectl -n tron set env deployment/nginx REDIS_HOST-", executor.commands)
 
     @patch("tron.env.probe_service")
     def test_reset_hard_reset_recreates_cluster(self, probe_service_mock) -> None:

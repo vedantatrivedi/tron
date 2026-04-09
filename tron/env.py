@@ -119,20 +119,19 @@ class TronEnvironment:
             if deployment_changed_from_apply(apply_result.stdout, name)
         }
 
-        if self._needs_runtime_override_cleanup:
-            override_probe = build_runtime_override_probe_command(namespace)
-            probe_result = self.executor.run(override_probe, timeout=trusted_timeout)
-            if probe_result.return_code != 0:
-                details = probe_result.stderr or probe_result.stdout or "command failed with no output"
-                raise RuntimeError(f"baseline restore failed for `{override_probe}`: {details}")
+        override_probe = build_runtime_override_probe_command(namespace)
+        probe_result = self.executor.run(override_probe, timeout=trusted_timeout)
+        if probe_result.return_code != 0:
+            details = probe_result.stderr or probe_result.stdout or "command failed with no output"
+            raise RuntimeError(f"baseline restore failed for `{override_probe}`: {details}")
 
-            if "REDIS_HOST" in (probe_result.stdout or "").split():
-                clear_result = self.executor.run(commands[2], timeout=trusted_timeout)
-                if clear_result.return_code != 0:
-                    details = clear_result.stderr or clear_result.stdout or "command failed with no output"
-                    raise RuntimeError(f"baseline restore failed for `{commands[2]}`: {details}")
-                if command_output_indicates_change(clear_result.stdout or clear_result.stderr):
-                    changed_deployments.add("nginx")
+        if "REDIS_HOST" in (probe_result.stdout or "").split():
+            clear_result = self.executor.run(commands[2], timeout=trusted_timeout)
+            if clear_result.return_code != 0:
+                details = clear_result.stderr or clear_result.stdout or "command failed with no output"
+                raise RuntimeError(f"baseline restore failed for `{commands[2]}`: {details}")
+            if command_output_indicates_change(clear_result.stdout or clear_result.stderr):
+                changed_deployments.add("nginx")
 
         for deployment_name in ("redis", "nginx"):
             if deployment_name not in changed_deployments:
