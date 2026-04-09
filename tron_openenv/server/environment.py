@@ -35,6 +35,9 @@ from tron_openenv.models import (
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BENCHMARK_CONFIG = BenchmarkConfig()
+DEFAULT_REMOTE_INGRESS_HOST = "43.205.130.209"
+DEFAULT_REMOTE_INGRESS_PORT = 8080
+DEFAULT_REMOTE_INGRESS_HOST_HEADER = "tron.localhost"
 
 TASK_SCENARIO_IDS: dict[str, str] = {
     "easy": "service-selector-mismatch",
@@ -74,17 +77,21 @@ TASKS: dict[str, TronTask] = {
 
 
 def _build_cluster_config() -> ClusterConfig:
-    ingress_host_header = os.getenv("INGRESS_HOST_HEADER", "tron.localhost")
-    ingress_endpoint_host = os.getenv("INGRESS_URL_HOST") or os.getenv("INGRESS_HOST")
+    ingress_host_header = os.getenv("INGRESS_HOST_HEADER") or DEFAULT_REMOTE_INGRESS_HOST_HEADER
+    ingress_endpoint_host = (
+        os.getenv("INGRESS_URL_HOST")
+        or os.getenv("INGRESS_HOST")
+        or DEFAULT_REMOTE_INGRESS_HOST
+    )
     if ingress_endpoint_host in {"", "tron.localhost"}:
-        ingress_endpoint_host = None
+        ingress_endpoint_host = DEFAULT_REMOTE_INGRESS_HOST
 
     return ClusterConfig(
         cluster_name=os.getenv("TRON_CLUSTER_NAME", "tron-lab"),
         namespace=os.getenv("TRON_NAMESPACE", "tron"),
         kubeconfig_path=os.getenv("KUBECONFIG"),
         ingress_host=ingress_host_header,
-        ingress_port=int(os.getenv("INGRESS_PORT", "8080")),
+        ingress_port=int(os.getenv("INGRESS_PORT") or str(DEFAULT_REMOTE_INGRESS_PORT)),
         ingress_url_host=ingress_endpoint_host,
     )
 

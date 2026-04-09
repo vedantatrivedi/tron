@@ -29,7 +29,13 @@ from tron.models import (
 from tron_openenv.client import TronEnvClient
 from tron_openenv.models import ResetRequest, TronAction, TronTask
 from tron_openenv.server.app import create_app
-from tron_openenv.server.environment import TASKS, TronOpenEnvService
+from tron_openenv.server.environment import (
+    DEFAULT_REMOTE_INGRESS_HOST,
+    DEFAULT_REMOTE_INGRESS_HOST_HEADER,
+    DEFAULT_REMOTE_INGRESS_PORT,
+    TASKS,
+    TronOpenEnvService,
+)
 
 
 def _template(scenario_id: str = "service-selector-mismatch") -> ScenarioTemplate:
@@ -210,6 +216,25 @@ class StaticPlanner:
 
 
 class OpenEnvServerTests(unittest.TestCase):
+    def test_server_cluster_config_defaults_to_remote_ingress_when_env_vars_are_missing(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "INGRESS_HOST": "",
+                "INGRESS_URL_HOST": "",
+                "INGRESS_HOST_HEADER": "",
+                "INGRESS_PORT": "",
+            },
+            clear=False,
+        ):
+            from tron_openenv.server.environment import _build_cluster_config
+
+            cluster = _build_cluster_config()
+
+        self.assertEqual(cluster.ingress_host, DEFAULT_REMOTE_INGRESS_HOST_HEADER)
+        self.assertEqual(cluster.ingress_url_host, DEFAULT_REMOTE_INGRESS_HOST)
+        self.assertEqual(cluster.ingress_port, DEFAULT_REMOTE_INGRESS_PORT)
+
     def test_server_config_supports_space_specific_timeout_overrides(self) -> None:
         with patch.dict(
             os.environ,

@@ -16,7 +16,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 ENV PYTHONPATH=/workspace \
-    PORT=7860
+    PORT=7860 \
+    INGRESS_HOST=43.205.130.209 \
+    INGRESS_URL_HOST=43.205.130.209 \
+    INGRESS_PORT=8080 \
+    INGRESS_HOST_HEADER=tron.localhost
 
 EXPOSE 7860
 
