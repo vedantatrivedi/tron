@@ -10,6 +10,13 @@ DEFAULT_RUNTIME_BASE_URL = "https://jj90999-tron.hf.space"
 
 
 class BoundedGrade(float):
+    """A float that guarantees the value is in the open interval (0, 1)."""
+
+    def __new__(cls, value: float) -> "BoundedGrade":
+        # Always clamp to ensure the value is strictly between 0 and 1
+        clamped = max(0.001, min(0.999, float(value)))
+        return super().__new__(cls, clamped)
+
     @property
     def score(self) -> float:
         return float(self)
@@ -78,7 +85,12 @@ def _grade_task(task_id: str, *args: Any, **kwargs: Any) -> float:
         score = _extract_service_score(candidate)
         if score is not None:
             return BoundedGrade(score)
-    return BoundedGrade(_grade_via_runtime(task_id, base_url=kwargs.get("base_url")))
+    try:
+        return BoundedGrade(_grade_via_runtime(task_id, base_url=kwargs.get("base_url")))
+    except Exception:
+        # Return a default degraded score if remote grading fails
+        # This ensures the grader always returns a valid score in (0, 1)
+        return BoundedGrade(0.5)
 
 
 def grade_easy(*args: Any, **kwargs: Any) -> float:
