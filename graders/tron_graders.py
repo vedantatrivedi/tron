@@ -23,12 +23,20 @@ class BoundedGrade(float):
         return {"score": value, "reward": value}
 
 
+def _clamp_to_open_interval(value: float) -> float:
+    """Clamp a score to the open interval (0, 1) as required by the grading contract."""
+    return max(0.001, min(0.999, value))
+
+
 def _extract_service_score(candidate: Any) -> float | None:
     if candidate is None:
         return None
     if isinstance(candidate, (int, float)):
         value = float(candidate)
-        return value if 0.0 < value < 1.0 else None
+        # Accept any score in [0, 1] and clamp to open interval (0, 1)
+        if 0.0 <= value <= 1.0:
+            return _clamp_to_open_interval(value)
+        return None
     if isinstance(candidate, dict):
         for key in ("score", "reward"):
             value = _extract_service_score(candidate.get(key))
