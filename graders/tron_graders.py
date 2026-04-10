@@ -9,12 +9,16 @@ import requests
 DEFAULT_RUNTIME_BASE_URL = "https://jj90999-tron.hf.space"
 
 
+def _clamp_to_open_interval(value: float) -> float:
+    """Clamp a score to the open interval (0, 1) as required by the grading contract."""
+    return max(0.001, min(0.999, value))
+
+
 class BoundedGrade(float):
     """A float that guarantees the value is in the open interval (0, 1)."""
 
     def __new__(cls, value: float) -> "BoundedGrade":
-        # Always clamp to ensure the value is strictly between 0 and 1
-        clamped = max(0.001, min(0.999, float(value)))
+        clamped = _clamp_to_open_interval(float(value))
         return super().__new__(cls, clamped)
 
     @property
@@ -30,20 +34,29 @@ class BoundedGrade(float):
         return {"score": value, "reward": value}
 
 
-def _clamp_to_open_interval(value: float) -> float:
-    """Clamp a score to the open interval (0, 1) as required by the grading contract."""
-    return max(0.001, min(0.999, value))
-
-
 def _extract_service_score(candidate: Any) -> float | None:
+    """Extract a score from various input formats."""
     if candidate is None:
         return None
+
+    # Handle numeric types directly
     if isinstance(candidate, (int, float)):
         value = float(candidate)
-        # Accept any score in [0, 1] and clamp to open interval (0, 1)
         if 0.0 <= value <= 1.0:
             return _clamp_to_open_interval(value)
         return None
+
+    # Handle objects with model_dump() method (Pydantic models)
+    if hasattr(candidate, "model_dump") and callable(candidate.model_dump):
+        return _extract_service_score(candidate.model_dump())
+
+    # Handle objects with .score attribute
+    if hasattr(candidate, "score"):
+        score_val = getattr(candidate, "score", None)
+        if score_val is not None:
+            return _extract_service_score(score_val)
+
+    # Handle dicts
     if isinstance(candidate, dict):
         for key in ("score", "reward"):
             value = _extract_service_score(candidate.get(key))
@@ -55,6 +68,7 @@ def _extract_service_score(candidate: Any) -> float | None:
         observation = candidate.get("observation")
         if isinstance(observation, dict):
             return _extract_service_score(observation)
+
     return None
 
 
@@ -67,7 +81,7 @@ def _runtime_base_url(explicit_base_url: str | None = None) -> str:
     ).rstrip("/")
 
 
-def _grade_via_runtime(task_id: str, base_url: str | None = None, timeout: float = 120.0) -> float:
+def _grade_via_runtime(task_id: str, base_url: str | None = None, timeout: float = 10.0) -> float:
     response = requests.post(
         f"{_runtime_base_url(base_url)}/grader/{task_id}",
         timeout=timeout,
