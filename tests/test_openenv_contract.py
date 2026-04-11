@@ -62,14 +62,20 @@ class OpenEnvContractTests(unittest.TestCase):
         self.assertIn("run: make ci", workflow)
 
     def test_python_graders_expose_score_and_reward_attributes(self) -> None:
-        with patch("graders.tron_graders._grade_via_runtime", return_value=0.7):
-            result = grade_easy()
+        result = grade_easy()
 
         self.assertIsInstance(result, BoundedGrade)
+        self.assertEqual(float(result), 0.5)
+        self.assertEqual(result.score, 0.5)
+        self.assertEqual(result.reward, 0.5)
+        self.assertEqual(result.model_dump(), {"score": 0.5, "reward": 0.5})
+
+    def test_python_graders_can_still_use_explicit_remote_base_url(self) -> None:
+        with patch("graders.tron_graders._grade_via_runtime", return_value=0.7) as remote_grade:
+            result = grade_easy(base_url="https://example.test")
+
         self.assertEqual(float(result), 0.7)
-        self.assertEqual(result.score, 0.7)
-        self.assertEqual(result.reward, 0.7)
-        self.assertEqual(result.model_dump(), {"score": 0.7, "reward": 0.7})
+        remote_grade.assert_called_once_with("easy", base_url="https://example.test")
 
 
 if __name__ == "__main__":

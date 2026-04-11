@@ -9,8 +9,6 @@ from pathlib import Path
 from threading import Lock, Thread
 from uuid import uuid4
 
-import requests
-
 logger = logging.getLogger("tron.server")
 
 
@@ -40,8 +38,6 @@ DEFAULT_BENCHMARK_CONFIG = BenchmarkConfig()
 DEFAULT_REMOTE_INGRESS_HOST = "43.205.130.209"
 DEFAULT_REMOTE_INGRESS_PORT = 8080
 DEFAULT_REMOTE_INGRESS_HOST_HEADER = "tron.localhost"
-DEFAULT_REMOTE_GRADER_BASE_URL = "https://jj90999-tron.hf.space"
-
 TASK_SCENARIO_IDS: dict[str, str] = {
     "easy": "service-selector-mismatch",
     "medium": "bad-rollout-wrong-redis-host",
@@ -178,7 +174,6 @@ class TronOpenEnvService:
         self.cluster_check_ttl_seconds = _float_env("TRON_OPENENV_CLUSTER_CHECK_TTL_SECONDS", 0.0)
         self.reset_settle_timeout_seconds = _float_env("TRON_OPENENV_RESET_SETTLE_TIMEOUT_SECONDS", 8.0)
         self.reset_settle_poll_seconds = _float_env("TRON_OPENENV_RESET_SETTLE_POLL_SECONDS", 0.5)
-        self.remote_grader_timeout_seconds = _float_env("TRON_OPENENV_REMOTE_GRADER_TIMEOUT_SECONDS", 60.0)
         self._last_cluster_check_monotonic: float | None = None
         self.reset_jobs: dict[str, dict[str, object]] = {}
         self.current_task: TronTask | None = None
@@ -416,28 +411,6 @@ class TronOpenEnvService:
         payload["job_id"] = job_id
         return payload
 
-    def _remote_grader_base_url(self) -> str:
-        return (os.getenv("TRON_GRADER_BASE_URL") or DEFAULT_REMOTE_GRADER_BASE_URL).rstrip("/")
-
-    def _should_proxy_grading_to_remote(self) -> bool:
-        return not (os.getenv("KUBECONFIG_B64") or os.getenv("KUBECONFIG"))
-
-    def _grade_via_remote_runtime(self, task_id: str, seed: int | None = None) -> TronGradeResponse:
-        url = f"{self._remote_grader_base_url()}/grader/{task_id}"
-        payload = {"seed": seed} if seed is not None else None
-        try:
-            response = requests.post(
-                url,
-                json=payload,
-                timeout=self.remote_grader_timeout_seconds,
-            )
-            response.raise_for_status()
-            return TronGradeResponse.model_validate(response.json())
-        except Exception as exc:
-            raise RuntimeError(
-                f"remote grader fallback failed for task {task_id} via {url}: {exc}"
-            ) from exc
-
     def grade(self, task_id: str, seed: int | None = None) -> TronGradeResponse:
         task = self._require_task(task_id)
         current_task = self.current_task.id if self.current_task else None
@@ -445,26 +418,11 @@ class TronOpenEnvService:
             if current_task != task.id or self.env.current_instance is None:
                 self.reset(ResetRequest(task_id=task.id, seed=seed))
         except ClusterNotAvailableError as exc:
-            if self._should_proxy_grading_to_remote():
-                logger.warning(
-                    "[grader] local cluster unavailable for task=%s; proxying to remote grader: %s",
-                    task.id,
-                    exc,
-                )
-                try:
-                    return self._grade_via_remote_runtime(task.id, seed=seed)
-                except RuntimeError as remote_exc:
-                    logger.warning(
-                        "[grader] remote proxy failed for task=%s; returning default degraded score: %s",
-                        task.id,
-                        remote_exc,
-                    )
-            else:
-                logger.warning(
-                    "[grader] local cluster unavailable for task=%s; returning default degraded score: %s",
-                    task.id,
-                    exc,
-                )
+            logger.warning(
+                "[grader] local cluster unavailable for task=%s; returning default degraded score: %s",
+                task.id,
+                exc,
+            )
             return TronGradeResponse(
                 task_id=task.id,
                 score=0.5,
