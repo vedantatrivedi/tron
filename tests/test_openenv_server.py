@@ -457,7 +457,12 @@ class OpenEnvServerTests(unittest.TestCase):
         with redirect_stdout(output):
             emit_start(task_name="easy", env_name="tron", model_name="gpt-5-mini")
             summary = run_task(client, StaticPlanner(), task_id="easy", seed=11)
-            emit_end(success=summary["success"], steps=summary["steps"], rewards=summary["rewards"])
+            emit_end(
+                success=summary["success"],
+                steps=summary["steps"],
+                score=summary["oracle_score"],
+                rewards=summary["rewards"],
+            )
 
         rendered = output.getvalue().strip().splitlines()
         self.assertEqual(rendered[0], "[START] task=easy env=tron model=gpt-5-mini")
@@ -467,7 +472,7 @@ class OpenEnvServerTests(unittest.TestCase):
                 "reward=0.30 done=true error=null"
             )
         )
-        self.assertEqual(rendered[-1], "[END] success=true steps=1 rewards=0.30")
+        self.assertEqual(rendered[-1], "[END] success=true steps=1 score=1.00 rewards=0.30")
         self.assertTrue(summary["success"])
 
 

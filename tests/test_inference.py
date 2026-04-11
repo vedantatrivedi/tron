@@ -70,7 +70,7 @@ class InferenceHelpersTests(unittest.TestCase):
     def test_emit_start_and_end_use_required_line_format(self) -> None:
         with patch("builtins.print") as mocked_print:
             emit_start(task_name="easy", env_name="tron", model_name="gpt-5-mini")
-            emit_end(success=True, steps=2, rewards=[0.0, 1.0])
+            emit_end(success=True, steps=2, score=1.0, rewards=[0.0, 1.0])
 
         self.assertEqual(
             mocked_print.call_args_list[0].args[0],
@@ -78,7 +78,7 @@ class InferenceHelpersTests(unittest.TestCase):
         )
         self.assertEqual(
             mocked_print.call_args_list[1].args[0],
-            "[END] success=true steps=2 rewards=0.00,1.00",
+            "[END] success=true steps=2 score=1.00 rewards=0.00,1.00",
         )
 
     def test_openai_planner_uses_required_env_style_inputs(self) -> None:
@@ -186,7 +186,7 @@ class InferenceHelpersTests(unittest.TestCase):
 
         stdout_lines = [call.args[0] for call in mocked_print.call_args_list if call.kwargs.get("file") is None]
         self.assertEqual(stdout_lines[0], f"[START] task=easy env=tron model={DEFAULT_MODEL_NAME}")
-        self.assertEqual(stdout_lines[-1], "[END] success=false steps=0 rewards=")
+        self.assertEqual(stdout_lines[-1], "[END] success=false steps=0 score=0.00 rewards=")
 
 
 if __name__ == "__main__":

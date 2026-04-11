@@ -121,6 +121,12 @@ def _sanitize_token(value: str | None) -> str:
     return cleaned or "null"
 
 
+def _clamp_score(value: float | None) -> float:
+    if value is None:
+        return 0.0
+    return max(0.0, min(1.0, float(value)))
+
+
 def emit_start(task_name: str, env_name: str, model_name: str) -> None:
     print(
         f"[START] task={_sanitize_token(task_name)} env={_sanitize_token(env_name)} "
@@ -137,10 +143,10 @@ def emit_step(step: int, action: str, reward: float, done: bool, error: str | No
     )
 
 
-def emit_end(success: bool, steps: int, rewards: list[float]) -> None:
+def emit_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
     rendered_rewards = ",".join(f"{reward:.2f}" for reward in rewards)
     print(
-        f"[END] success={_bool_token(success)} steps={steps} rewards={rendered_rewards}",
+        f"[END] success={_bool_token(success)} steps={steps} score={_clamp_score(score):.2f} rewards={rendered_rewards}",
         flush=True,
     )
 
@@ -295,6 +301,16 @@ def run_task(
     }
 
 
+def _summary_score(summary: dict[str, Any]) -> float:
+    oracle_score = summary.get("oracle_score")
+    if oracle_score is not None:
+        return _clamp_score(oracle_score)
+    service_score = summary.get("service_score")
+    if service_score is not None:
+        return _clamp_score(service_score)
+    return 1.0 if bool(summary.get("success", False)) else 0.0
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the tron OpenEnv baseline inference loop.")
     parser.add_argument("--env-base-url", default=os.getenv("ENV_BASE_URL", "").strip())
@@ -347,6 +363,7 @@ def main() -> None:
         emit_end(
             success=bool(summary.get("success", False)),
             steps=int(summary.get("steps", 0)),
+            score=_summary_score(summary),
             rewards=list(summary.get("rewards", [])),
         )
 
