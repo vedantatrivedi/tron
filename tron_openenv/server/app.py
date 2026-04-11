@@ -23,6 +23,7 @@ from tron_openenv.models import (
     TronAction,
     TronGradeRequest,
     TronGradeResponse,
+    TronMetadata,
     TronState,
     TronTask,
 )
@@ -33,24 +34,24 @@ def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
     runtime = service or TronOpenEnvService()
     app = FastAPI(title="tron OpenEnv server", version="1.0.0")
 
-    def metadata_payload() -> dict[str, object]:
-        return {
-            "name": "tron",
-            "description": "Live k3d benchmark for diagnosing and repairing realistic Kubernetes incidents under partial observability.",
-            "status": "ok",
-            "tasks": [task.model_dump() for task in runtime.list_tasks()],
-        }
+    def metadata_payload() -> TronMetadata:
+        return TronMetadata(
+            name="tron",
+            description="Live k3d benchmark for diagnosing and repairing realistic Kubernetes incidents under partial observability.",
+            status="ok",
+            tasks=runtime.list_tasks(),
+        )
 
-    @app.get("/")
-    def root() -> dict[str, object]:
+    @app.get("/", response_model=TronMetadata)
+    def root() -> TronMetadata:
         return metadata_payload()
 
-    @app.get("/info")
-    def info() -> dict[str, object]:
+    @app.get("/info", response_model=TronMetadata)
+    def info() -> TronMetadata:
         return metadata_payload()
 
-    @app.get("/metadata")
-    def metadata() -> dict[str, object]:
+    @app.get("/metadata", response_model=TronMetadata)
+    def metadata() -> TronMetadata:
         return metadata_payload()
 
     @app.get("/health")
