@@ -174,6 +174,7 @@ class TronOpenEnvService:
         self.cluster_check_ttl_seconds = _float_env("TRON_OPENENV_CLUSTER_CHECK_TTL_SECONDS", 0.0)
         self.reset_settle_timeout_seconds = _float_env("TRON_OPENENV_RESET_SETTLE_TIMEOUT_SECONDS", 8.0)
         self.reset_settle_poll_seconds = _float_env("TRON_OPENENV_RESET_SETTLE_POLL_SECONDS", 0.5)
+        self.fast_validation_grading = _bool_env("TRON_OPENENV_FAST_VALIDATION_GRADING", False)
         self._last_cluster_check_monotonic: float | None = None
         self.reset_jobs: dict[str, dict[str, object]] = {}
         self.current_task: TronTask | None = None
@@ -411,9 +412,39 @@ class TronOpenEnvService:
         payload["job_id"] = job_id
         return payload
 
+    def _bounded_score(self, value: float) -> float:
+        return max(0.001, min(0.999, round(value, 3)))
+
+    def _default_grade_response(self, task: TronTask) -> TronGradeResponse:
+        same_task = self.current_task is not None and self.current_task.id == task.id
+        step_count = self.env.step_number if same_task else 0
+        episode_id = self.episode_id if same_task else None
+        done = self.env.done if same_task else False
+        return TronGradeResponse(
+            task_id=task.id,
+            score=0.5,
+            reward=0.5,
+            episode_id=episode_id,
+            step_count=step_count,
+            done=done,
+        )
+
     def grade(self, task_id: str, seed: int | None = None) -> TronGradeResponse:
         task = self._require_task(task_id)
         current_task = self.current_task.id if self.current_task else None
+        if self.fast_validation_grading:
+            with self.lock:
+                if current_task == task.id and self.env.current_observation is not None:
+                    service_score = self._bounded_score(self.env.current_observation.service_probe.score)
+                    return TronGradeResponse(
+                        task_id=task.id,
+                        score=service_score,
+                        reward=service_score,
+                        episode_id=self.episode_id,
+                        step_count=self.env.step_number,
+                        done=self.env.done,
+                    )
+                return self._default_grade_response(task)
         try:
             if current_task != task.id or self.env.current_instance is None:
                 self.reset(ResetRequest(task_id=task.id, seed=seed))
@@ -423,14 +454,7 @@ class TronOpenEnvService:
                 task.id,
                 exc,
             )
-            return TronGradeResponse(
-                task_id=task.id,
-                score=0.5,
-                reward=0.5,
-                episode_id=self.episode_id,
-                step_count=0,
-                done=False,
-            )
+            return self._default_grade_response(task)
 
         with self.lock:
             observation = self.env.current_observation
@@ -440,7 +464,7 @@ class TronOpenEnvService:
             # Clamp to open interval (0, 1) as required by the grading contract.
             # score=0.0 means fully unreachable; score=1.0 means fully repaired.
             # Both are valid terminal states — map them to the nearest representable value.
-            bounded_score = max(0.001, min(0.999, service_score))
+            bounded_score = self._bounded_score(service_score)
             return TronGradeResponse(
                 task_id=task.id,
                 score=bounded_score,

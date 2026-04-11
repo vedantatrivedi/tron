@@ -336,6 +336,39 @@ class OpenEnvServerTests(unittest.TestCase):
         self.assertEqual(response.json()["score"], 0.5)
         self.assertEqual(response.json()["reward"], 0.5)
 
+    def test_http_grade_returns_fast_validation_fallback_without_reset(self) -> None:
+        service = TronOpenEnvService(env=FakeCoreEnv())
+        app = create_app(service)
+        client = TestClient(app)
+
+        with patch.dict("os.environ", {"TRON_OPENENV_FAST_VALIDATION_GRADING": "1"}, clear=False):
+            service.fast_validation_grading = True
+            with patch.object(service, "reset", side_effect=AssertionError("reset should not be called")):
+                response = client.get("/grader/hard")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["task_id"], "hard")
+        self.assertEqual(response.json()["score"], 0.5)
+        self.assertEqual(response.json()["reward"], 0.5)
+        self.assertEqual(response.json()["step_count"], 0)
+        self.assertFalse(response.json()["done"])
+
+    def test_http_grade_reuses_current_observation_in_fast_validation_mode(self) -> None:
+        service = TronOpenEnvService(env=FakeCoreEnv())
+        app = create_app(service)
+        client = TestClient(app)
+
+        service.fast_validation_grading = True
+        reset_response = client.post("/reset", json={"task_id": "easy", "seed": 11})
+        self.assertEqual(reset_response.status_code, 200)
+
+        response = client.get("/grader/easy")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["task_id"], "easy")
+        self.assertEqual(response.json()["score"], 0.7)
+        self.assertEqual(response.json()["reward"], 0.7)
+
     def test_http_reset_without_body_uses_default_request(self) -> None:
         app = create_app(TronOpenEnvService(env=FakeCoreEnv()))
         client = TestClient(app)
