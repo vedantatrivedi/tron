@@ -319,7 +319,7 @@ class OpenEnvServerTests(unittest.TestCase):
         self.assertEqual(state_response.status_code, 200)
         self.assertEqual(state_response.json()["oracle_score"], 1.0)
 
-    def test_http_grade_returns_default_score_when_cluster_is_unreachable(self) -> None:
+    def test_http_grade_proxies_to_remote_when_cluster_is_unreachable_without_kubeconfig(self) -> None:
         class FailingExecutor:
             def run_argv(self, argv, timeout=20.0):
                 del argv, timeout
@@ -329,12 +329,24 @@ class OpenEnvServerTests(unittest.TestCase):
         app = create_app(service)
         client = TestClient(app)
 
-        response = client.get("/grader/easy")
+        with patch.dict("os.environ", {"KUBECONFIG_B64": "", "KUBECONFIG": ""}, clear=False):
+            with patch.object(
+                TronOpenEnvService,
+                "_grade_via_remote_runtime",
+                return_value=TronGradeResponse(
+                    task_id="easy",
+                    score=0.7,
+                    reward=0.7,
+                    episode_id="remote-episode",
+                    step_count=0,
+                    done=False,
+                ),
+            ) as remote_grade:
+                response = client.get("/grader/easy")
 
         self.assertEqual(response.status_code, 200)
-        score = response.json()["score"]
-        self.assertGreater(score, 0.0)
-        self.assertLess(score, 1.0)
+        self.assertEqual(response.json()["score"], 0.7)
+        remote_grade.assert_called_once_with("easy", seed=None)
 
     def test_http_reset_without_body_uses_default_request(self) -> None:
         app = create_app(TronOpenEnvService(env=FakeCoreEnv()))

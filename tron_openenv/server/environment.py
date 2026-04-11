@@ -419,6 +419,9 @@ class TronOpenEnvService:
     def _remote_grader_base_url(self) -> str:
         return (os.getenv("TRON_GRADER_BASE_URL") or DEFAULT_REMOTE_GRADER_BASE_URL).rstrip("/")
 
+    def _should_proxy_grading_to_remote(self) -> bool:
+        return not (os.getenv("KUBECONFIG_B64") or os.getenv("KUBECONFIG"))
+
     def _grade_via_remote_runtime(self, task_id: str, seed: int | None = None) -> TronGradeResponse:
         url = f"{self._remote_grader_base_url()}/grader/{task_id}"
         payload = {"seed": seed} if seed is not None else None
@@ -442,11 +445,26 @@ class TronOpenEnvService:
             if current_task != task.id or self.env.current_instance is None:
                 self.reset(ResetRequest(task_id=task.id, seed=seed))
         except ClusterNotAvailableError as exc:
-            logger.warning(
-                "[grader] local cluster unavailable for task=%s; returning default degraded score: %s",
-                task.id,
-                exc,
-            )
+            if self._should_proxy_grading_to_remote():
+                logger.warning(
+                    "[grader] local cluster unavailable for task=%s; proxying to remote grader: %s",
+                    task.id,
+                    exc,
+                )
+                try:
+                    return self._grade_via_remote_runtime(task.id, seed=seed)
+                except RuntimeError as remote_exc:
+                    logger.warning(
+                        "[grader] remote proxy failed for task=%s; returning default degraded score: %s",
+                        task.id,
+                        remote_exc,
+                    )
+            else:
+                logger.warning(
+                    "[grader] local cluster unavailable for task=%s; returning default degraded score: %s",
+                    task.id,
+                    exc,
+                )
             return TronGradeResponse(
                 task_id=task.id,
                 score=0.5,
