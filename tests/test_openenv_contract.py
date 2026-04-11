@@ -31,6 +31,10 @@ class OpenEnvContractTests(unittest.TestCase):
                 "graders.tron_graders:HardGrader",
             ],
         )
+        self.assertEqual(
+            [task["score_range"] for task in payload["tasks"]],
+            [[0.001, 0.999], [0.001, 0.999], [0.001, 0.999]],
+        )
 
     def test_openenv_referenced_files_exist(self) -> None:
         payload = yaml.safe_load((ROOT / "openenv.yaml").read_text(encoding="utf-8"))

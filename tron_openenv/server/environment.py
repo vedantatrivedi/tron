@@ -259,7 +259,7 @@ class TronOpenEnvService:
                 data_status="unavailable",
                 http_status=None,
                 latency_ms=None,
-                score=0.01,
+                score=0.001,
             ),
             cluster_summary=ClusterSummary(
                 pods="cluster unavailable",

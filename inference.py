@@ -123,8 +123,8 @@ def _sanitize_token(value: str | None) -> str:
 
 def _clamp_score(value: float | None) -> float:
     if value is None:
-        return 0.01
-    return max(0.01, min(0.99, float(value)))
+        return 0.001
+    return max(0.001, min(0.999, float(value)))
 
 
 def emit_start(task_name: str, env_name: str, model_name: str) -> None:
@@ -146,7 +146,7 @@ def emit_step(step: int, action: str, reward: float, done: bool, error: str | No
 def emit_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
     rendered_rewards = ",".join(f"{reward:.2f}" for reward in rewards)
     print(
-        f"[END] success={_bool_token(success)} steps={steps} score={_clamp_score(score):.2f} rewards={rendered_rewards}",
+        f"[END] success={_bool_token(success)} steps={steps} score={_clamp_score(score):.3f} rewards={rendered_rewards}",
         flush=True,
     )
 

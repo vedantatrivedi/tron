@@ -7,7 +7,7 @@ import requests
 
 def _clamp_to_open_interval(value: float) -> float:
     """Clamp a score to the open interval (0, 1) as required by the grading contract."""
-    return max(0.01, min(0.99, value))
+    return max(0.001, min(0.999, value))
 
 
 class BoundedGrade(float):

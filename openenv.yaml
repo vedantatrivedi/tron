@@ -22,18 +22,21 @@ tasks:
     name: Easy Redis Service Wiring
     scenario_id: service-selector-mismatch
     difficulty: easy
+    score_range: [0.001, 0.999]
     description: Repair service-to-pod wiring so the frontend can reach redis.
     grader: graders.tron_graders:EasyGrader
   - id: medium
     name: Medium Config Drift Rollout
     scenario_id: bad-rollout-wrong-redis-host
     difficulty: medium
+    score_range: [0.001, 0.999]
     description: Repair configuration drift and ensure the durable rollout picks it up.
     grader: graders.tron_graders:MediumGrader
   - id: hard
     name: Hard Policy Plus Drift
     scenario_id: networkpolicy-plus-secondary-drift
     difficulty: hard
+    score_range: [0.001, 0.999]
     description: Repair a compound outage spanning policy and routing drift.
     grader: graders.tron_graders:HardGrader
 observability:

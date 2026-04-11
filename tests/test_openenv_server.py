@@ -353,7 +353,7 @@ class OpenEnvServerTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["task"]["id"], "easy")
         self.assertEqual(payload["observation"]["incident_brief"], "cluster unavailable")
-        self.assertEqual(payload["observation"]["service_probe"]["score"], 0.01)
+        self.assertEqual(payload["observation"]["service_probe"]["score"], 0.001)
         self.assertEqual(payload["observation"]["service_probe"]["health_status"], "unavailable")
         self.assertFalse(payload["observation"]["done"])
         self.assertFalse(payload["observation"]["metadata"]["cluster_available"])
@@ -518,7 +518,7 @@ class OpenEnvServerTests(unittest.TestCase):
                 "reward=0.30 done=true error=null"
             )
         )
-        self.assertEqual(rendered[-1], "[END] success=true steps=1 score=0.99 rewards=0.30")
+        self.assertEqual(rendered[-1], "[END] success=true steps=1 score=0.999 rewards=0.30")
         self.assertTrue(summary["success"])
 
 
