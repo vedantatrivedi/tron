@@ -33,6 +33,7 @@ class TronTask(BaseModel):
     difficulty: str
     default_seed: int
     max_agent_steps: int
+    score_range: Optional[list[float]] = Field(default=None, min_length=2, max_length=2)
     name: Optional[str] = None
     description: Optional[str] = None
     grader: Optional[str] = None

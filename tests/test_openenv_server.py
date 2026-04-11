@@ -281,11 +281,13 @@ class OpenEnvServerTests(unittest.TestCase):
         self.assertEqual(root_response.json()["name"], "tron")
         self.assertEqual([item["id"] for item in root_response.json()["tasks"]], ["easy", "medium", "hard"])
         self.assertTrue(all(item["grader"] for item in root_response.json()["tasks"]))
+        self.assertTrue(all(item["score_range"] == [0.001, 0.999] for item in root_response.json()["tasks"]))
 
         info_response = client.get("/info")
         self.assertEqual(info_response.status_code, 200)
         self.assertEqual(info_response.json()["status"], "ok")
         self.assertEqual([item["id"] for item in info_response.json()["tasks"]], ["easy", "medium", "hard"])
+        self.assertTrue(all(item["score_range"] == [0.001, 0.999] for item in info_response.json()["tasks"]))
 
         health_response = client.get("/health")
         self.assertEqual(health_response.status_code, 200)
@@ -299,10 +301,12 @@ class OpenEnvServerTests(unittest.TestCase):
         self.assertEqual(tasks_response.status_code, 200)
         self.assertEqual([item["id"] for item in tasks_response.json()], ["easy", "medium", "hard"])
         self.assertTrue(all(item["grader"] for item in tasks_response.json()))
+        self.assertTrue(all(item["score_range"] == [0.001, 0.999] for item in tasks_response.json()))
 
         reset_response = client.post("/reset", json={"task_id": "easy", "seed": 11})
         self.assertEqual(reset_response.status_code, 200)
         self.assertEqual(reset_response.json()["task"]["id"], "easy")
+        self.assertEqual(reset_response.json()["task"]["score_range"], [0.001, 0.999])
 
         grade_response = client.post("/grader/easy")
         self.assertEqual(grade_response.status_code, 200)
