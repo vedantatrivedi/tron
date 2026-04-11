@@ -80,8 +80,6 @@ main() {
     if [[ -n "${KUBECONFIG_B64:-}" ]]; then
         auto_detect_ingress
         verify_cluster_connectivity
-    else
-        log "WARNING: KUBECONFIG_B64 is not set. POST /reset will return HTTP 503 until cluster credentials are provided."
     fi
 
     if [[ "$#" -eq 0 ]]; then

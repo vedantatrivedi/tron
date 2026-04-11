@@ -336,6 +336,52 @@ class OpenEnvServerTests(unittest.TestCase):
         self.assertEqual(response.json()["score"], 0.5)
         self.assertEqual(response.json()["reward"], 0.5)
 
+    def test_http_reset_can_soft_fallback_when_cluster_is_unreachable(self) -> None:
+        class FailingExecutor:
+            def run_argv(self, argv, timeout=20.0):
+                del argv, timeout
+                return type("Result", (), {"return_code": 1, "stderr": "cluster unreachable", "stdout": ""})()
+
+        service = TronOpenEnvService(env=FakeCoreEnv(executor=FailingExecutor()))
+        service.soft_reset_on_cluster_unavailable = True
+        app = create_app(service)
+        client = TestClient(app)
+
+        response = client.post("/reset", json={"task_id": "easy", "seed": 11})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["task"]["id"], "easy")
+        self.assertEqual(payload["observation"]["incident_brief"], "cluster unavailable")
+        self.assertEqual(payload["observation"]["service_probe"]["score"], 0.01)
+        self.assertEqual(payload["observation"]["service_probe"]["health_status"], "unavailable")
+        self.assertFalse(payload["observation"]["done"])
+        self.assertFalse(payload["observation"]["metadata"]["cluster_available"])
+        self.assertTrue(payload["observation"]["metadata"]["soft_reset"])
+        self.assertIn("cluster unreachable", payload["observation"]["metadata"]["reset_error"])
+
+    def test_http_step_fails_after_soft_reset_placeholder(self) -> None:
+        class FailingExecutor:
+            def run_argv(self, argv, timeout=20.0):
+                del argv, timeout
+                return type("Result", (), {"return_code": 1, "stderr": "cluster unreachable", "stdout": ""})()
+
+        service = TronOpenEnvService(env=FakeCoreEnv(executor=FailingExecutor()))
+        service.soft_reset_on_cluster_unavailable = True
+        app = create_app(service)
+        client = TestClient(app)
+
+        reset_response = client.post("/reset", json={"task_id": "easy", "seed": 11})
+        self.assertEqual(reset_response.status_code, 200)
+
+        step_response = client.post(
+            "/step",
+            json=TronAction(command="kubectl -n tron get service redis -o yaml").model_dump(),
+        )
+
+        self.assertEqual(step_response.status_code, 400)
+        self.assertIn("cluster unreachable", step_response.json()["detail"])
+
     def test_http_grade_returns_fast_validation_fallback_without_reset(self) -> None:
         service = TronOpenEnvService(env=FakeCoreEnv())
         app = create_app(service)

@@ -17,7 +17,14 @@ class ClusterNotAvailableError(RuntimeError):
 
 
 from tron.env import TronEnvironment
-from tron.models import BenchmarkConfig, ClusterConfig, ObservationBundle, StepTransition
+from tron.models import (
+    BenchmarkConfig,
+    ClusterConfig,
+    ClusterSummary,
+    ObservationBundle,
+    ServiceProbe,
+    StepTransition,
+)
 from tron_openenv.models import (
     ClusterSummaryView,
     ResetRequest,
@@ -175,6 +182,10 @@ class TronOpenEnvService:
         self.reset_settle_timeout_seconds = _float_env("TRON_OPENENV_RESET_SETTLE_TIMEOUT_SECONDS", 8.0)
         self.reset_settle_poll_seconds = _float_env("TRON_OPENENV_RESET_SETTLE_POLL_SECONDS", 0.5)
         self.fast_validation_grading = _bool_env("TRON_OPENENV_FAST_VALIDATION_GRADING", False)
+        self.soft_reset_on_cluster_unavailable = _bool_env(
+            "TRON_OPENENV_SOFT_RESET_ON_CLUSTER_UNAVAILABLE",
+            False,
+        )
         self._last_cluster_check_monotonic: float | None = None
         self.reset_jobs: dict[str, dict[str, object]] = {}
         self.current_task: TronTask | None = None
@@ -182,6 +193,7 @@ class TronOpenEnvService:
         self.episode_id: str | None = None
         self.cumulative_reward: float = 0.0
         self.last_evaluation = None
+        self._runtime_metadata: dict[str, object] = {}
 
     def list_tasks(self) -> list[TronTask]:
         return [self.tasks[key] for key in ("easy", "medium", "hard")]
@@ -193,7 +205,9 @@ class TronOpenEnvService:
             raise KeyError(f"unknown task_id: {task_id}") from exc
 
     def _observation_to_model(self, observation: ObservationBundle, done: bool) -> TronObservation:
-        if self.current_task is None or self.env.current_instance is None:
+        if self.current_task is None:
+            raise RuntimeError("task state is not initialized")
+        if self.env.current_instance is None and not self._soft_reset_active():
             raise RuntimeError("task state is not initialized")
         return TronObservation(
             task_id=self.current_task.id,
@@ -218,7 +232,54 @@ class TronOpenEnvService:
             done=done,
             metadata={
                 "difficulty": self.current_task.difficulty,
+                **self._runtime_metadata,
             },
+        )
+
+    def _soft_reset_active(self) -> bool:
+        return bool(self._runtime_metadata.get("soft_reset")) and self.env.current_instance is None
+
+    def _soft_reset_response(self, task: TronTask, seed: int, detail: str) -> ResetResponse:
+        self.current_task = task
+        self.current_seed = seed
+        self.episode_id = uuid4().hex
+        self.cumulative_reward = 0.0
+        self.last_evaluation = None
+        self.env.step_number = 0
+        self.env.done = False
+        self.env.last_reward = 0.0
+        self.env.current_instance = None
+        observation = ObservationBundle(
+            incident_brief="cluster unavailable",
+            step_number=0,
+            last_action=None,
+            last_reward=0.0,
+            service_probe=ServiceProbe(
+                health_status="unavailable",
+                data_status="unavailable",
+                http_status=None,
+                latency_ms=None,
+                score=0.01,
+            ),
+            cluster_summary=ClusterSummary(
+                pods="cluster unavailable",
+                services="cluster unavailable",
+                deployments="cluster unavailable",
+                endpoints="cluster unavailable",
+            ),
+            recent_change_hint="Provide KUBECONFIG_B64 to enable cluster-backed reset and step execution.",
+        )
+        self.env.current_observation = observation
+        self.env.current_service_score = observation.service_probe.score
+        self._runtime_metadata = {
+            "cluster_available": False,
+            "soft_reset": True,
+            "reset_error": detail,
+        }
+        logger.warning("[reset] soft reset fallback for task=%s seed=%d: %s", task.id, seed, detail)
+        return ResetResponse(
+            task=task,
+            observation=self._observation_to_model(observation, done=False),
         )
 
     def _assert_cluster_reachable(self) -> None:
@@ -322,7 +383,12 @@ class TronOpenEnvService:
                 "[reset] requested task=%s scenario=%s seed=%d hard_reset=%s",
                 task.id, scenario_id, seed, request.hard_reset,
             )
-            self._assert_cluster_reachable()
+            try:
+                self._assert_cluster_reachable()
+            except ClusterNotAvailableError as exc:
+                if not self.soft_reset_on_cluster_unavailable:
+                    raise
+                return self._soft_reset_response(task, seed, str(exc))
             env_reset_started = time.perf_counter()
             try:
                 observation = self.env.reset(
@@ -345,6 +411,7 @@ class TronOpenEnvService:
             self.episode_id = uuid4().hex
             self.cumulative_reward = 0.0
             self.last_evaluation = None
+            self._runtime_metadata = {}
             logger.info(
                 "[reset] episode=%s ready score=%.2f health=%s data=%s env_reset=%.2fs total=%.2fs incident=%r",
                 self.episode_id[:8],
@@ -455,6 +522,12 @@ class TronOpenEnvService:
                 exc,
             )
             return self._default_grade_response(task)
+        if self._soft_reset_active():
+            logger.warning(
+                "[grader] soft reset is active for task=%s; returning default degraded score",
+                task.id,
+            )
+            return self._default_grade_response(task)
 
         with self.lock:
             observation = self.env.current_observation
@@ -476,6 +549,11 @@ class TronOpenEnvService:
 
     def step(self, action: TronAction) -> StepResponse:
         with self.lock:
+            if self._soft_reset_active():
+                detail = self._runtime_metadata.get("reset_error") or (
+                    "cluster unavailable after soft reset; provide KUBECONFIG_B64 before calling /step"
+                )
+                raise RuntimeError(str(detail))
             if self.current_task is None or self.env.current_instance is None:
                 raise RuntimeError("reset() must be called before step()")
 
