@@ -26,9 +26,9 @@ class OpenEnvContractTests(unittest.TestCase):
         self.assertEqual(
             [task["grader"] for task in payload["tasks"]],
             [
-                "graders.tron_graders:EasyGrader",
-                "graders.tron_graders:MediumGrader",
-                "graders.tron_graders:HardGrader",
+                "grade_easy",
+                "grade_medium",
+                "grade_hard",
             ],
         )
         self.assertEqual(
