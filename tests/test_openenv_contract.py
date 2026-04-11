@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import yaml
 
-from graders.tron_graders import BoundedGrade, grade_easy
+from graders.tron_graders import BoundedGrade, EasyGrader, grade_easy
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,9 +26,9 @@ class OpenEnvContractTests(unittest.TestCase):
         self.assertEqual(
             [task["grader"] for task in payload["tasks"]],
             [
-                "graders.tron_graders:grade_easy",
-                "graders.tron_graders:grade_medium",
-                "graders.tron_graders:grade_hard",
+                "graders.tron_graders:EasyGrader",
+                "graders.tron_graders:MediumGrader",
+                "graders.tron_graders:HardGrader",
             ],
         )
 
@@ -68,6 +68,14 @@ class OpenEnvContractTests(unittest.TestCase):
         self.assertEqual(float(result), 0.5)
         self.assertEqual(result.score, 0.5)
         self.assertEqual(result.reward, 0.5)
+        self.assertEqual(result.model_dump(), {"score": 0.5, "reward": 0.5})
+
+    def test_class_style_graders_expose_grade_method(self) -> None:
+        grader = EasyGrader()
+        result = grader.grade()
+
+        self.assertIsInstance(result, BoundedGrade)
+        self.assertEqual(float(result), 0.5)
         self.assertEqual(result.model_dump(), {"score": 0.5, "reward": 0.5})
 
     def test_python_graders_can_still_use_explicit_remote_base_url(self) -> None:

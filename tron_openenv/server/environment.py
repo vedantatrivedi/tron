@@ -52,7 +52,7 @@ TASKS: dict[str, TronTask] = {
         max_agent_steps=12,
         name="Easy Redis Service Wiring",
         description="Repair service-to-pod wiring so the frontend can reach redis.",
-        grader="graders.tron_graders:grade_easy",
+        grader="graders.tron_graders:EasyGrader",
     ),
     "medium": TronTask(
         id="medium",
@@ -61,7 +61,7 @@ TASKS: dict[str, TronTask] = {
         max_agent_steps=15,
         name="Medium Config Drift Rollout",
         description="Repair configuration drift and ensure the durable rollout picks it up.",
-        grader="graders.tron_graders:grade_medium",
+        grader="graders.tron_graders:MediumGrader",
     ),
     "hard": TronTask(
         id="hard",
@@ -70,7 +70,7 @@ TASKS: dict[str, TronTask] = {
         max_agent_steps=18,
         name="Hard Policy Plus Drift",
         description="Repair a compound outage spanning policy and routing drift.",
-        grader="graders.tron_graders:grade_hard",
+        grader="graders.tron_graders:HardGrader",
     ),
 }
 

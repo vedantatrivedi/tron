@@ -30,6 +30,18 @@ class BoundedGrade(float):
         return {"score": value, "reward": value}
 
 
+class BaseTronGrader:
+    """Class-style grader wrapper for validators that expect an object with grade()."""
+
+    task_id: str = ""
+
+    def grade(self, *args: Any, **kwargs: Any) -> float:
+        return _grade_task(self.task_id, *args, **kwargs)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> float:
+        return self.grade(*args, **kwargs)
+
+
 def _extract_service_score(candidate: Any) -> float | None:
     """Extract a score from various input formats."""
     if candidate is None:
@@ -101,6 +113,18 @@ def _grade_task(task_id: str, *args: Any, **kwargs: Any) -> float:
     # Deterministic local fallback for validator paths that import the grader
     # directly without environment state or cluster credentials.
     return BoundedGrade(0.5)
+
+
+class EasyGrader(BaseTronGrader):
+    task_id = "easy"
+
+
+class MediumGrader(BaseTronGrader):
+    task_id = "medium"
+
+
+class HardGrader(BaseTronGrader):
+    task_id = "hard"
 
 
 def grade_easy(*args: Any, **kwargs: Any) -> float:
