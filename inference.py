@@ -123,8 +123,8 @@ def _sanitize_token(value: str | None) -> str:
 
 def _clamp_score(value: float | None) -> float:
     if value is None:
-        return 0.0
-    return max(0.0, min(1.0, float(value)))
+        return 0.01
+    return max(0.01, min(0.99, float(value)))
 
 
 def emit_start(task_name: str, env_name: str, model_name: str) -> None:

@@ -472,7 +472,7 @@ class OpenEnvServerTests(unittest.TestCase):
                 "reward=0.30 done=true error=null"
             )
         )
-        self.assertEqual(rendered[-1], "[END] success=true steps=1 score=1.00 rewards=0.30")
+        self.assertEqual(rendered[-1], "[END] success=true steps=1 score=0.99 rewards=0.30")
         self.assertTrue(summary["success"])
 
 
