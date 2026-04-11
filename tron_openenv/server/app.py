@@ -36,6 +36,7 @@ def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
     def metadata_payload() -> dict[str, object]:
         return {
             "name": "tron",
+            "description": "Live k3d benchmark for diagnosing and repairing realistic Kubernetes incidents under partial observability.",
             "status": "ok",
             "tasks": [task.model_dump() for task in runtime.list_tasks()],
         }
@@ -46,6 +47,10 @@ def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
 
     @app.get("/info")
     def info() -> dict[str, object]:
+        return metadata_payload()
+
+    @app.get("/metadata")
+    def metadata() -> dict[str, object]:
         return metadata_payload()
 
     @app.get("/health")
