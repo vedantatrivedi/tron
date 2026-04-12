@@ -286,9 +286,9 @@ class OpenEnvServerTests(unittest.TestCase):
         self.assertEqual(
             [item["grader"] for item in root_response.json()["tasks"]],
             [
-                "graders.tron_graders:EasyGrader",
-                "graders.tron_graders:MediumGrader",
-                "graders.tron_graders:HardGrader",
+                "server.app:EasyGrader",
+                "server.app:MediumGrader",
+                "server.app:HardGrader",
             ],
         )
 
@@ -322,9 +322,9 @@ class OpenEnvServerTests(unittest.TestCase):
         self.assertEqual(
             [item["grader"] for item in tasks_response.json()],
             [
-                "graders.tron_graders:EasyGrader",
-                "graders.tron_graders:MediumGrader",
-                "graders.tron_graders:HardGrader",
+                "server.app:EasyGrader",
+                "server.app:MediumGrader",
+                "server.app:HardGrader",
             ],
         )
 

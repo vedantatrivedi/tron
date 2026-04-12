@@ -1,7 +1,7 @@
 spec_version: 1
 name: tron
 description: Live k3d benchmark for diagnosing and repairing realistic Kubernetes incidents under partial observability.
-type: benchmark
+type: space
 runtime: fastapi
 app: server.app:app
 port: 7860
@@ -28,21 +28,21 @@ tasks:
     difficulty: easy
     score_range: [0.001, 0.999]
     description: Repair service-to-pod wiring so the frontend can reach redis.
-    grader: graders.tron_graders:EasyGrader
+    grader: server.app:EasyGrader
   - id: medium
     name: Medium Config Drift Rollout
     scenario_id: bad-rollout-wrong-redis-host
     difficulty: medium
     score_range: [0.001, 0.999]
     description: Repair configuration drift and ensure the durable rollout picks it up.
-    grader: graders.tron_graders:MediumGrader
+    grader: server.app:MediumGrader
   - id: hard
     name: Hard Policy Plus Drift
     scenario_id: networkpolicy-plus-secondary-drift
     difficulty: hard
     score_range: [0.001, 0.999]
     description: Repair a compound outage spanning policy and routing drift.
-    grader: graders.tron_graders:HardGrader
+    grader: server.app:HardGrader
 observability:
   partial_observability: true
   blackbox_service_probe: true
