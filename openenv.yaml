@@ -1,11 +1,15 @@
+spec_version: 1
 name: tron
 description: Live k3d benchmark for diagnosing and repairing realistic Kubernetes incidents under partial observability.
 type: benchmark
+runtime: fastapi
+app: server.app:app
+port: 7860
 entrypoints:
   server: python -m tron_openenv.server.app
   inference: python inference.py
   demo_eval: python eval/demo.py
-runtime:
+benchmark_runtime:
   reset_command: POST /reset
   step_command: POST /step
   state_command: GET /state
