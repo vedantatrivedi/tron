@@ -16,6 +16,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 
+from graders import grade_easy, grade_hard, grade_medium
 from tron_openenv.models import (
     ResetRequest,
     ResetResponse,
@@ -122,6 +123,15 @@ def create_app(service: TronOpenEnvService | None = None) -> FastAPI:
 
 
 app = create_app()
+
+__all__ = [
+    "app",
+    "create_app",
+    "main",
+    "grade_easy",
+    "grade_medium",
+    "grade_hard",
+]
 
 
 def main() -> None:
