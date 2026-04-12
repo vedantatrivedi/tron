@@ -1,5 +1,19 @@
 """Core package for the tron benchmark runtime."""
 
-from graders import grade_easy, grade_hard, grade_medium
+from graders import (
+    EasyGrader,
+    HardGrader,
+    MediumGrader,
+    grade_easy,
+    grade_hard,
+    grade_medium,
+)
 
-__all__ = ["grade_easy", "grade_medium", "grade_hard"]
+__all__ = [
+    "EasyGrader",
+    "MediumGrader",
+    "HardGrader",
+    "grade_easy",
+    "grade_medium",
+    "grade_hard",
+]
